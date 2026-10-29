@@ -4,6 +4,8 @@
 
 后续schema v5已增加events分页对象：读取items并按next_cursor翻页后再与报告/CSV总数比较；本文件中事件数指全部分页合并数。分页会固定品牌和复核上限，具体契约见 [OPERATIONS.md](OPERATIONS.md)，下文旧的“分页尚未实现”仅适用于报告聚合与导出。
 
+复核历史GET也已从数组变为items/next_cursor对象，默认100/最多500条；重复复核均保留，配置与序号上限固定。调用方迁移说明见 [AUDIT_AND_RETENTION.md](AUDIT_AND_RETENTION.md)。
+
 ## 统一筛选
 
 `GET /api/v1/sites/{id}/report`、`/events` 和 `/export.csv` 共用以下参数：

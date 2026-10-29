@@ -79,3 +79,6 @@ sites 保存站点 origin、品牌及竞品名称/别名；events 保存 site_id
 # 本地容量与状态增量（2026-10-29）
 
 `geo/limits.py` 管理单请求条数/UTF-8字节预算；`geo/reporting.py` 统一筛选规范化和SQL谓词；Service的报告/CSV读取与分页复用谓词。品牌投影通过临时选择表与最新复核序号缩小读取范围。`geo/status.py` 使用只读数据库连接输出无正文/密钥/路径的管理员摘要，API负责鉴权和503映射。GET序列化在发送成功响应前检查预算；超限422，不截断统计。schema仍为v5，不引入外部依赖。详细契约与剩余范围见 CAPACITY_AND_STATUS.md。
+# 审计与保留增量（2026-10-29）
+
+共享游标签名迁入geo/cursors.py；geo/paging.py增加审计历史分页，固定配置/复核上限并与事件游标隔离。geo/retention.py在同一事务内限制事件键、任务ID、复核序号的合计条数/字节，且在写计划或删数据前预检完整返回计划。geo/db.py区分初始化创建与运行中仅打开既有库，固定绝对路径。未升级schema。并发基线与兼容性变更见 AUDIT_AND_RETENTION.md。

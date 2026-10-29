@@ -8,7 +8,7 @@ from .service import Conflict
 from .security import Security
 from .catalog import catalog
 from .reporting import FILTERS, events_csv
-from .paging import page
+from .paging import page, review_page
 from .retention import Retention
 from .jobs import Jobs
 from .limits import CapacityExceeded, json_bytes
@@ -112,7 +112,7 @@ def server(service, token, host='127.0.0.1', port=8000, security=None):
                            'events': {'start', 'end', 'brand_config_id', 'limit', 'cursor', *FILTERS},
                            'export.csv': {'start', 'end', 'brand_config_id', *FILTERS},
                            'inventory': {'inventory_id'}, 'brands': {'brand_config_id'},
-                           'mention-reviews': {'brand_config_id'}}.get(action, set())
+                           'mention-reviews': {'brand_config_id', 'limit', 'cursor'}}.get(action, set())
                 if set(query) - allowed or any(len(v) != 1 or not v[0].strip() for v in query.values()):
                     raise ValueError('unknown, repeated or empty query parameter')
                 start, end = query.get('start', [None])[0], query.get('end', [None])[0]
@@ -124,8 +124,8 @@ def server(service, token, host='127.0.0.1', port=8000, security=None):
                 if self.command == 'GET' and action == 'brands':
                     return self.send(200, service.brands.configuration(site_id, config_id))
                 if self.command == 'GET' and action == 'mention-reviews':
-                    config = service.brands.configuration(site_id, config_id)
-                    return self.send(200, service.brands.reviews(site_id, config['id']))
+                    return self.send(200, review_page(service, site_id, token, config_id,
+                        limit=int(query.get('limit', ['100'])[0]), cursor=query.get('cursor', [None])[0]))
                 if self.command == 'GET' and action == 'export.csv':
                     return self.send_csv(service.events(site_id, start, end, filters, config_id))
                 if self.command == 'GET' and action == 'inventory':

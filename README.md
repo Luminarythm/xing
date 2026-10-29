@@ -50,7 +50,7 @@ Linux/macOS：`export GEO_API_TOKEN="$(python -c 'import secrets; print(secrets.
 | GET | `/api/v1/status` | 管理员运行状态、任务积压与生效容量限制 |
 | POST / GET | `/api/v1/sites/{id}/inventory` | 导入 / 读取页面清单快照 |
 | POST / GET | `/api/v1/sites/{id}/brands` | 保存 / 读取品牌配置版本 |
-| POST / GET | `/api/v1/sites/{id}/mention-reviews` | 人工提及复核 / 审计历史 |
+| POST / GET | `/api/v1/sites/{id}/mention-reviews` | 人工提及复核 / 分页审计历史items/next_cursor |
 | GET | `/api/v1/sites/{id}/export.csv` | 导出经过统一筛选的事件CSV |
 | POST | `/api/v1/sites/{id}/retention-preview`、`retention-execute` | 预览 / 确认删除过期数据 |
 | POST / GET | `/api/v1/sites/{id}/sample-jobs` | 创建 / 查看本地模拟采样任务 |
@@ -79,3 +79,5 @@ Linux/macOS：`export GEO_API_TOKEN="$(python -c 'import secrets; print(secrets.
 [分页、保留删除、备份恢复与模拟任务](docs/OPERATIONS.md)：当前schema v5；events默认100条，最多500条，需按next_cursor翻页。
 
 [容量控制与运行状态](docs/CAPACITY_AND_STATUS.md)：报告/CSV默认最多10,000条匹配事件，原始事件读取和GET响应分别最多16 MiB；超限返回422且不截断。按日志筛选时回答指标为null，按回答筛选时爬虫指标为null。
+
+[审计分页、删除预算与并发验收](docs/AUDIT_AND_RETENTION.md)：复核历史GET由数组改为分页对象；删除选择合计事件、任务与复核记录，超限不保存残缺计划。运行中缺失数据库不会被普通连接意外重建。`python scripts/local_load.py` 可重复运行临时合成数据并发基线。

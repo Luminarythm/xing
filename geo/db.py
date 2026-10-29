@@ -16,9 +16,9 @@ PRAGMA user_version=1;
 
 class Database:
     def __init__(self, path):
-        self.path = str(path)
-        Path(path).parent.mkdir(parents=True, exist_ok=True)
-        with self.connect() as conn:
+        self.path = str(Path(path).resolve())
+        Path(self.path).parent.mkdir(parents=True, exist_ok=True)
+        with self._connect(create=True) as conn:
             version = conn.execute('PRAGMA user_version').fetchone()[0]
             if version not in (0, 1, 2, 3, 4, 5):
                 raise RuntimeError('unsupported database schema version')
@@ -74,9 +74,14 @@ class Database:
                 PRAGMA user_version=5;
                 COMMIT;''')
 
-    @contextmanager
     def connect(self):
-        conn = sqlite3.connect(self.path, timeout=10)
+        return self._connect()
+
+    @contextmanager
+    def _connect(self, create=False):
+        # Only explicit initialization may create a new database.
+        uri = Path(self.path).as_uri() + ('?mode=rwc' if create else '?mode=rw')
+        conn = sqlite3.connect(uri, uri=True, timeout=10)
         conn.row_factory = sqlite3.Row
         conn.execute('PRAGMA foreign_keys=ON')
         try:
