@@ -5,6 +5,7 @@ import unicodedata
 import uuid
 from datetime import datetime, timezone
 from .contracts import text
+from .limits import read_rows
 
 RULE = 'alias-boundary-v1'
 
@@ -112,11 +113,33 @@ class Brands:
     def reviews(self, site_id, config_id, max_sequence=9223372036854775807):
         self.configuration(site_id, config_id)
         with self.db.connect() as conn:
-            return [json.loads(r[0]) for r in conn.execute(
-                'SELECT payload FROM mention_reviews WHERE site_id=? AND config_id=? AND sequence<=? ORDER BY sequence', (site_id, config_id, max_sequence))]
+            rows = read_rows(conn.execute(
+                'SELECT payload FROM mention_reviews WHERE site_id=? AND config_id=? AND sequence<=? ORDER BY sequence',
+                (site_id, config_id, max_sequence)), self.service.limits.query_events, self.service.limits.query_bytes)
+            return [json.loads(r['payload']) for r in rows]
 
     def project(self, site_id, events, config, max_review_sequence=9223372036854775807):
-        overrides = {(r['source'], r['event_id'], r['brand_id']): r for r in self.reviews(site_id, config['id'], max_review_sequence)}
+        answers = [(e['source'], e['event_id']) for e in events if e['kind'] == 'answers']
+        overrides = {}
+        if answers:
+            with self.db.connect() as conn:
+                conn.execute('CREATE TEMP TABLE selected_answers(source TEXT,event_id TEXT,PRIMARY KEY(source,event_id))')
+                conn.executemany('INSERT INTO selected_answers VALUES(?,?)', answers)
+                # Read only the latest decision per selected answer/brand, not the audit history.
+                rows = read_rows(conn.execute('''SELECT json_object(
+                    'source',json_extract(r.payload,'$.source'), 'event_id',json_extract(r.payload,'$.event_id'),
+                    'brand_id',json_extract(r.payload,'$.brand_id'), 'id',json_extract(r.payload,'$.id'),
+                    'included',json_extract(r.payload,'$.included')) AS payload
+                    FROM mention_reviews r WHERE r.sequence IN (
+                        SELECT MAX(m.sequence) FROM mention_reviews m JOIN selected_answers a
+                        ON a.source=json_extract(m.payload,'$.source') AND a.event_id=json_extract(m.payload,'$.event_id')
+                        WHERE m.site_id=? AND m.config_id=? AND m.sequence<=?
+                        GROUP BY a.source,a.event_id,json_extract(m.payload,'$.brand_id'))''',
+                    (site_id, config['id'], max_review_sequence)), len(answers) * len(config['brands']), self.service.limits.query_bytes)
+                for row in rows:
+                    review = json.loads(row['payload'])
+                    review['included'] = bool(review['included'])
+                    overrides[(review['source'], review['event_id'], review['brand_id'])] = review
         for event in events:
             if event['kind'] != 'answers':
                 continue

@@ -5,15 +5,15 @@ import hmac
 import json
 import time
 from .contracts import timestamp
-from .reporting import filter_events
+from .reporting import normalize_filters, query_predicate
+from .limits import read_rows
 
 
 def page(service, site_id, secret, start=None, end=None, filters=None, brand_config_id=None, limit=100, cursor=None):
     service.site(site_id)
     if type(limit) is not int or not 1 <= limit <= 500:
         raise ValueError('limit must be 1..500')
-    filter_events([], filters)
-    filters = {k: v.strip() for k, v in (filters or {}).items()}
+    filters = normalize_filters(filters)
     start, end = timestamp(start) if start else '0001', timestamp(end) if end else '9999'
     if start >= end:
         raise ValueError('start must precede end')
@@ -34,18 +34,13 @@ def page(service, site_id, secret, start=None, end=None, filters=None, brand_con
             high = conn.execute('SELECT COALESCE(MAX(sequence),0) FROM event_positions').fetchone()[0]
             review_high = conn.execute('SELECT COALESCE(MAX(sequence),0) FROM mention_reviews').fetchone()[0]
         state = dict(scope=scope, after=0, high=high, reviews=review_high, config=config['id'], expires=time.time()+3600)
-    clauses = ['e.site_id=?', 'e.observed_at>=?', 'e.observed_at<?', 'p.sequence>?', 'p.sequence<=?']
-    params = [site_id, start, end, state['after'], state['high']]
-    if any(k in filters for k in ('platform', 'surface', 'model')):
-        clauses.append("e.kind='answers'")
-    for key, value in filters.items():
-        column = 'e.' + key if key in ('kind', 'source') else "json_extract(e.payload,'$." + key + "')"
-        clauses.append(column + '=?')
-        params.append(value)
+    clauses, params = query_predicate(site_id, start, end, filters)
+    clauses.extend(['p.sequence>?', 'p.sequence<=?'])
+    params.extend([state['after'], state['high']])
     with service.db.connect() as conn:
-        rows = conn.execute('''SELECT p.sequence,e.kind,e.source,e.payload FROM event_positions p JOIN events e
+        rows = read_rows(conn.execute('''SELECT p.sequence,e.kind,e.source,e.payload FROM event_positions p JOIN events e
             ON (e.site_id,e.kind,e.source,e.event_id)=(p.site_id,p.kind,p.source,p.event_id) WHERE ''' +
-            ' AND '.join(clauses) + ' ORDER BY p.sequence LIMIT ?', (*params, limit+1)).fetchall()
+            ' AND '.join(clauses) + ' ORDER BY p.sequence LIMIT ?', (*params, limit+1)), limit+1, service.limits.query_bytes)
     more = len(rows) > limit
     rows = rows[:limit]
     events = [dict(kind=r['kind'], source=r['source'], **json.loads(r['payload'])) for r in rows]

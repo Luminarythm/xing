@@ -76,3 +76,6 @@ sites 保存站点 origin、品牌及竞品名称/别名；events 保存 site_id
 增量：已新增 inventories 不可变快照表（site_id、id、created_at、source、urls），report可固定inventory_id；最新的目录和统计口径以 [COVERAGE_AND_CRAWLERS.md](COVERAGE_AND_CRAWLERS.md) 为准。无清单时仍保留unknown语义，有清单时分别计算观察覆盖与2xx成功覆盖。
 
 阶段1先接一个授权站点，证明真实日志可以稳定流入，人工回答证据可复核。后续再做页面清单、中文品牌消歧、平台分层报告和 worker。公网部署前须完成域名所有权验证、组织/站点授权、站点采集密钥、TLS 网关与限流、分页和保留/删除策略、备份恢复演练。当前全量事件读取不适合大数据集，stdlib HTTP server 不作为公网生产服务器。
+# 本地容量与状态增量（2026-10-29）
+
+`geo/limits.py` 管理单请求条数/UTF-8字节预算；`geo/reporting.py` 统一筛选规范化和SQL谓词；Service的报告/CSV读取与分页复用谓词。品牌投影通过临时选择表与最新复核序号缩小读取范围。`geo/status.py` 使用只读数据库连接输出无正文/密钥/路径的管理员摘要，API负责鉴权和503映射。GET序列化在发送成功响应前检查预算；超限422，不截断统计。schema仍为v5，不引入外部依赖。详细契约与剩余范围见 CAPACITY_AND_STATUS.md。

@@ -11,6 +11,8 @@ from .reporting import FILTERS, events_csv
 from .paging import page
 from .retention import Retention
 from .jobs import Jobs
+from .limits import CapacityExceeded, json_bytes
+from .status import runtime_status
 
 
 def server(service, token, host='127.0.0.1', port=8000, security=None):
@@ -28,7 +30,7 @@ def server(service, token, host='127.0.0.1', port=8000, security=None):
             pass  # Avoid writing tokens, prompts or user-supplied URLs to logs.
 
         def send(self, status, value):
-            data = json.dumps(value, ensure_ascii=False).encode()
+            data = json_bytes(value, service.limits.response_bytes) if self.command == 'GET' and status < 400 else json.dumps(value).encode()
             self.send_response(status)
             self.send_header('Content-Type', 'application/json; charset=utf-8')
             self.send_header('Content-Length', str(len(data)))
@@ -37,7 +39,7 @@ def server(service, token, host='127.0.0.1', port=8000, security=None):
             self.wfile.write(data)
 
         def send_csv(self, events):
-            data = ('\ufeff' + events_csv(events)).encode('utf-8')
+            data = ('\ufeff' + events_csv(events, service.limits.response_bytes)).encode('utf-8')
             self.send_response(200)
             self.send_header('Content-Type', 'text/csv; charset=utf-8')
             self.send_header('Content-Disposition', 'attachment; filename="xing-events.csv"')
@@ -71,6 +73,14 @@ def server(service, token, host='127.0.0.1', port=8000, security=None):
                     return self.send(201, service.create_site(body)) if body is not None else self.send(200, service.sites())
                 if admin and self.command == 'GET' and p.path == '/api/v1/crawlers':
                     return self.send(200, catalog())
+                if admin and self.command == 'GET' and p.path == '/api/v1/status':
+                    if p.query:
+                        raise ValueError('status does not accept query parameters')
+                    try:
+                        status = runtime_status(service)
+                    except (sqlite3.Error, OSError):
+                        return self.send(503, {'error': 'database unavailable'})
+                    return self.send(200, status)
                 if len(parts) != 5 or parts[:3] != ['api', 'v1', 'sites']:
                     raise LookupError('route not found')
                 site_id, action = parts[3:]
@@ -126,6 +136,8 @@ def server(service, token, host='127.0.0.1', port=8000, security=None):
                         limit=int(query.get('limit', ['100'])[0]), cursor=query.get('cursor', [None])[0])
                     return self.send(200, result)
                 raise LookupError('route not found')
+            except CapacityExceeded as exc:
+                self.send(422, {'error': str(exc), 'code': 'capacity_exceeded'})
             except (Conflict, sqlite3.IntegrityError):
                 self.send(409, {'error': 'duplicate site or conflicting event identity'})
             except PermissionError:

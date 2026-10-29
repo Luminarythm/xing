@@ -9,7 +9,8 @@ from .adapters import LOG_ADAPTERS, ANSWER_ADAPTERS, classify
 from .catalog import is_ai_event
 from .coverage import coverage
 from .brands import Brands, classify_mentions, RULE
-from .reporting import filter_events
+from .reporting import normalize_filters, query_predicate
+from .limits import Limits, read_rows
 
 
 class Conflict(ValueError):
@@ -17,8 +18,9 @@ class Conflict(ValueError):
 
 
 class Service:
-    def __init__(self, database):
+    def __init__(self, database, limits=None):
         self.db = database
+        self.limits = limits or Limits()
         self.brands = Brands(self)
 
     def create_site(self, body):
@@ -105,10 +107,12 @@ class Service:
         end = timestamp(end) if end else '9999'
         if start >= end:
             raise ValueError('start must precede end')
+        clauses, params = query_predicate(site_id, start, end, filters)
         with self.db.connect() as conn:
-            rows = conn.execute('SELECT kind,source,payload FROM events WHERE site_id=? AND observed_at>=? AND observed_at<? ORDER BY observed_at', (site_id, start, end)).fetchall()
+            rows = read_rows(conn.execute('SELECT e.kind,e.source,e.payload FROM events e WHERE ' +
+                ' AND '.join(clauses) + ' ORDER BY e.observed_at,e.kind,e.source,e.event_id', params),
+                self.limits.query_events, self.limits.query_bytes)
         events = [dict(kind=r['kind'], source=r['source'], **json.loads(r['payload'])) for r in rows]
-        events = filter_events(events, filters)
         return self.brands.project(site_id, events, self.brands.configuration(site_id, brand_config_id))
 
     def import_inventory(self, site_id, body):
@@ -139,6 +143,7 @@ class Service:
         return dict(row, urls=json.loads(row['urls'])) if row else None
 
     def report(self, site_id, start=None, end=None, inventory_id=None, filters=None, brand_config_id=None):
+        filters = normalize_filters(filters)
         site = self.site(site_id)
         config = self.brands.configuration(site_id, brand_config_id)
         events = self.events(site_id, start, end, filters, config['id'])
@@ -153,7 +158,7 @@ class Service:
                 page_coverage[name] = None
             page_coverage['pages'] = []
         cited = [e for e in answers if any(urlsplit(u).netloc == urlsplit(site['origin']).netloc for u in e['citations'])]
-        return dict(site=site, window=dict(start=start, end=end, end_exclusive=True), filters=filters or {},
+        result = dict(site=site, window=dict(start=start, end=end, end_exclusive=True), filters=filters,
             brand_config_id=config['id'], brand_definitions=config['brands'],
             mention_rule=RULE,
             log_scope='excluded_by_answer_filter' if log_excluded else 'included',
@@ -176,3 +181,10 @@ class Service:
                         'Coverage uses the selected inventory snapshot and unverified AI declarations; missing/empty inventory yields null.',
                         'Answer ratios describe uploaded samples, not market-wide exposure.',
                         'Literal brand matching may include ambiguous or negative mentions.'])
+        answer_excluded = filters.get('kind') == 'logs'
+        result['answer_scope'] = 'excluded_by_log_filter' if answer_excluded else 'included'
+        if answer_excluded:
+            for name in ('answer_samples', 'mentioned_samples', 'cited_site_samples', 'citation_rate',
+                         'brand_mentions', 'ambiguous_mention_samples', 'evidence_counts_by_surface', 'evidence_counts_by_platform'):
+                result[name] = None
+        return result

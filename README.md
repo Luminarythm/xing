@@ -37,7 +37,7 @@ Linux/macOS：`export GEO_API_TOKEN="$(python -c 'import secrets; print(secrets.
 
 ## 接口
 
-除 `GET /health` 外均需 `Authorization: Bearer <GEO_API_TOKEN>`。所有请求/响应为 JSON。
+除 `GET /health` 外均需 `Authorization: Bearer <GEO_API_TOKEN>`。请求/响应为 JSON，CSV下载除外。
 
 | 方法 | 路径 | 用途 |
 | --- | --- | --- |
@@ -47,6 +47,7 @@ Linux/macOS：`export GEO_API_TOKEN="$(python -c 'import secrets; print(secrets.
 | GET | `/api/v1/sites/{id}/report` | 基础统计 |
 | GET | `/api/v1/sites/{id}/events` | 分页证据对象items/next_cursor（格式变更） |
 | GET | `/api/v1/crawlers` | 爬虫目录、证据和待核实项 |
+| GET | `/api/v1/status` | 管理员运行状态、任务积压与生效容量限制 |
 | POST / GET | `/api/v1/sites/{id}/inventory` | 导入 / 读取页面清单快照 |
 | POST / GET | `/api/v1/sites/{id}/brands` | 保存 / 读取品牌配置版本 |
 | POST / GET | `/api/v1/sites/{id}/mention-reviews` | 人工提及复核 / 审计历史 |
@@ -54,7 +55,7 @@ Linux/macOS：`export GEO_API_TOKEN="$(python -c 'import secrets; print(secrets.
 | POST | `/api/v1/sites/{id}/retention-preview`、`retention-execute` | 预览 / 确认删除过期数据 |
 | POST / GET | `/api/v1/sites/{id}/sample-jobs` | 创建 / 查看本地模拟采样任务 |
 
-报告/明细支持 `?start=2026-10-28T16:00:00Z&end=2026-10-29T16:00:00Z`（北京时间 10 月 29 日，左闭右开）。省略则取全部数据。`+08:00` 用作查询参数时必须 URL 编码加号。错误：400 输入非法，401 未授权，404 不存在，409 重复站点/冲突事件，413 超限。
+报告/明细支持 `?start=2026-10-28T16:00:00Z&end=2026-10-29T16:00:00Z`（北京时间 10 月 29 日，左闭右开）。省略则查询全部时间，但受容量限制。`+08:00` 用作查询参数时必须 URL 编码加号。错误：400 输入非法，401 未授权，404 不存在，409 重复站点/冲突事件，413 请求体超限，422 查询/响应容量超限，503 状态检查发现数据库不可用。
 
 创建站点请求：`{"name":"星舟","url":"https://example.com","brands":["星舟","竞品甲"]}`。
 导入请求：`{"adapter":"json-v1","source":"origin-1","records":[...]}`。日志字段见 [demo](scripts/demo.py)，Nginx 字段见 [适配器](geo/adapters.py)。回答使用 `manual-v1`；`surface` 可选 manual / consumer_ui / model_api，禁止把模型 API 结果标为消费产品搜索结果。
@@ -63,7 +64,7 @@ Linux/macOS：`export GEO_API_TOKEN="$(python -c 'import secrets; print(secrets.
 
 ## 范围与下一步
 
-默认仅监听 127.0.0.1；这是本地验证服务，未完成公网生产加固、多租户、常驻调度和真实平台调用。事件已支持分页，报告/导出仍为全量读取。GEO_API_TOKEN 为实例管理权限；采集器使用单站点 GEO_INGEST_TOKEN。登记站点并不证明域名所有权，须另完成 HTTPS 挑战。回答正文可能含敏感信息，导入前脱敏；data/ 目录不得提交公开仓库。旧数据库自动升级到 schema v5，升级前建议备份。
+默认仅监听 127.0.0.1；这是本地验证服务，未完成公网生产加固、多租户、常驻调度和真实平台调用。事件已支持分页，报告/导出在容量范围内读取完整匹配集合，超限拒绝。GEO_API_TOKEN 为实例管理权限；采集器使用单站点 GEO_INGEST_TOKEN。登记站点并不证明域名所有权，须另完成 HTTPS 挑战。回答正文可能含敏感信息，导入前脱敏；data/ 目录不得提交公开仓库。旧数据库自动升级到 schema v5，升级前建议备份。
 
 爬虫 UA 声明不是已验证身份，抓取不等于收录/引用。没有页面清单时覆盖率为 null；没有回答样本时引用率为 null。品牌匹配为字面匹配，不判断情感、语义或推荐位次。
 
@@ -75,4 +76,6 @@ Linux/macOS：`export GEO_API_TOKEN="$(python -c 'import secrets; print(secrets.
 
 [品牌、人工复核与筛选导出](docs/BRANDS_AND_REPORTS.md)：支持platform、surface、model、source和kind筛选，以及brand_config_id固定匹配定义。
 
-[分页、保留删除、备份恢复与模拟任务](docs/OPERATIONS.md)：当前schema v5；events默认100条，最多500条，需按next_cursor翻页。report/CSV仍为全量实时查询。
+[分页、保留删除、备份恢复与模拟任务](docs/OPERATIONS.md)：当前schema v5；events默认100条，最多500条，需按next_cursor翻页。
+
+[容量控制与运行状态](docs/CAPACITY_AND_STATUS.md)：报告/CSV默认最多10,000条匹配事件，原始事件读取和GET响应分别最多16 MiB；超限返回422且不截断。按日志筛选时回答指标为null，按回答筛选时爬虫指标为null。
