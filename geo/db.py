@@ -20,7 +20,7 @@ class Database:
         Path(path).parent.mkdir(parents=True, exist_ok=True)
         with self.connect() as conn:
             version = conn.execute('PRAGMA user_version').fetchone()[0]
-            if version not in (0, 1, 2, 3):
+            if version not in (0, 1, 2, 3, 4):
                 raise RuntimeError('unsupported database schema version')
             if version == 0:
                 conn.executescript(SCHEMA)
@@ -42,6 +42,18 @@ class Database:
                   source TEXT NOT NULL, urls TEXT NOT NULL);
                 CREATE INDEX IF NOT EXISTS inventories_site ON inventories(site_id,sequence);
                 PRAGMA user_version=3;
+                COMMIT;''')
+            if version < 4:
+                conn.executescript('''BEGIN IMMEDIATE;
+                CREATE TABLE IF NOT EXISTS brand_configs (
+                  sequence INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT NOT NULL UNIQUE,
+                  site_id TEXT NOT NULL REFERENCES sites(id), created_at TEXT NOT NULL, brands TEXT NOT NULL);
+                CREATE INDEX IF NOT EXISTS brands_site ON brand_configs(site_id,sequence);
+                CREATE TABLE IF NOT EXISTS mention_reviews (
+                  sequence INTEGER PRIMARY KEY AUTOINCREMENT, site_id TEXT NOT NULL REFERENCES sites(id),
+                  config_id TEXT NOT NULL, payload TEXT NOT NULL);
+                CREATE INDEX IF NOT EXISTS reviews_scope ON mention_reviews(site_id,config_id,sequence);
+                PRAGMA user_version=4;
                 COMMIT;''')
 
     @contextmanager

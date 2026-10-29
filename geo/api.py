@@ -7,6 +7,7 @@ from urllib.parse import urlsplit, parse_qs
 from .service import Conflict
 from .security import Security
 from .catalog import catalog
+from .reporting import FILTERS, events_csv
 
 
 def server(service, token, host='127.0.0.1', port=8000, security=None):
@@ -26,6 +27,16 @@ def server(service, token, host='127.0.0.1', port=8000, security=None):
             data = json.dumps(value, ensure_ascii=False).encode()
             self.send_response(status)
             self.send_header('Content-Type', 'application/json; charset=utf-8')
+            self.send_header('Content-Length', str(len(data)))
+            self.send_header('Cache-Control', 'no-store')
+            self.end_headers()
+            self.wfile.write(data)
+
+        def send_csv(self, events):
+            data = ('\ufeff' + events_csv(events)).encode('utf-8')
+            self.send_response(200)
+            self.send_header('Content-Type', 'text/csv; charset=utf-8')
+            self.send_header('Content-Disposition', 'attachment; filename="xing-events.csv"')
             self.send_header('Content-Length', str(len(data)))
             self.send_header('Cache-Control', 'no-store')
             self.end_headers()
@@ -60,6 +71,10 @@ def server(service, token, host='127.0.0.1', port=8000, security=None):
                     raise LookupError('route not found')
                 site_id, action = parts[3:]
                 if admin and self.command == 'POST':
+                    if action == 'brands':
+                        return self.send(201, service.brands.configure(site_id, body))
+                    if action == 'mention-reviews':
+                        return self.send(201, service.brands.review(site_id, body))
                     if action == 'inventory':
                         return self.send(201, service.import_inventory(site_id, body))
                     if action == 'ownership-challenge':
@@ -72,13 +87,29 @@ def server(service, token, host='127.0.0.1', port=8000, security=None):
                         return self.send(200, security.revoke(site_id, body.get('key_id')))
                 if self.command == 'POST' and action in ('logs', 'answers'):
                     return self.send(200, service.ingest(site_id, action, body))
-                query = parse_qs(p.query)
+                query = parse_qs(p.query, keep_blank_values=True)
+                allowed = {'report': {'start', 'end', 'inventory_id', 'brand_config_id', *FILTERS},
+                           'events': {'start', 'end', 'brand_config_id', *FILTERS},
+                           'export.csv': {'start', 'end', 'brand_config_id', *FILTERS},
+                           'inventory': {'inventory_id'}, 'brands': {'brand_config_id'},
+                           'mention-reviews': {'brand_config_id'}}.get(action, set())
+                if set(query) - allowed or any(len(v) != 1 or not v[0].strip() for v in query.values()):
+                    raise ValueError('unknown, repeated or empty query parameter')
                 start, end = query.get('start', [None])[0], query.get('end', [None])[0]
                 inventory_id = query.get('inventory_id', [None])[0]
+                config_id = query.get('brand_config_id', [None])[0]
+                filters = {k: query[k][0] for k in FILTERS if k in query}
+                if self.command == 'GET' and action == 'brands':
+                    return self.send(200, service.brands.configuration(site_id, config_id))
+                if self.command == 'GET' and action == 'mention-reviews':
+                    config = service.brands.configuration(site_id, config_id)
+                    return self.send(200, service.brands.reviews(site_id, config['id']))
+                if self.command == 'GET' and action == 'export.csv':
+                    return self.send_csv(service.events(site_id, start, end, filters, config_id))
                 if self.command == 'GET' and action == 'inventory':
                     return self.send(200, service.inventory(site_id, inventory_id))
                 if self.command == 'GET' and action in ('report', 'events'):
-                    result = service.report(site_id, start, end, inventory_id) if action == 'report' else service.events(site_id, start, end)
+                    result = service.report(site_id, start, end, inventory_id, filters, config_id) if action == 'report' else service.events(site_id, start, end, filters, config_id)
                     return self.send(200, result)
                 raise LookupError('route not found')
             except (Conflict, sqlite3.IntegrityError):

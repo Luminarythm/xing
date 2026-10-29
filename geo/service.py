@@ -7,6 +7,8 @@ from .contracts import text, url, timestamp, records
 from .adapters import LOG_ADAPTERS, ANSWER_ADAPTERS, classify
 from .catalog import is_ai_event
 from .coverage import coverage
+from .brands import Brands, classify_mentions, RULE
+from .reporting import filter_events
 
 
 class Conflict(ValueError):
@@ -16,6 +18,7 @@ class Conflict(ValueError):
 class Service:
     def __init__(self, database):
         self.db = database
+        self.brands = Brands(self)
 
     def create_site(self, body):
         address = url(body.get('url'))
@@ -51,6 +54,7 @@ class Service:
         if adapter_name not in registry:
             raise ValueError('unsupported adapter')
         source = text(body.get('source'), 'source', 100)
+        config = self.brands.configuration(site_id) if kind == 'answers' else None
         normalized = []
         for raw in records(body.get('records')):
             r = registry[adapter_name].normalize(raw)
@@ -62,8 +66,8 @@ class Service:
                 r['user_agent_hash'] = hashlib.sha256(ua.encode()).hexdigest()
                 r.update(classify(ua))
             else:
-                r['mentions'] = [b for b in site['brands'] if b.casefold() in r['answer'].casefold()]
-                r['mention_rule'] = 'literal-casefold-v1'
+                r['mentions'] = [d['name'] for d in classify_mentions(r['answer'], config['brands']) if d['included']]
+                r['mention_rule'] = RULE
             normalized.append(r)
         inserted = 0
         with self.db.connect() as conn:
@@ -89,7 +93,7 @@ class Service:
                 inserted += 1
         return dict(inserted=inserted, duplicates=len(normalized)-inserted)
 
-    def events(self, site_id, start=None, end=None):
+    def events(self, site_id, start=None, end=None, filters=None, brand_config_id=None):
         self.site(site_id)
         start = timestamp(start) if start else '0001'
         end = timestamp(end) if end else '9999'
@@ -97,7 +101,9 @@ class Service:
             raise ValueError('start must precede end')
         with self.db.connect() as conn:
             rows = conn.execute('SELECT kind,source,payload FROM events WHERE site_id=? AND observed_at>=? AND observed_at<? ORDER BY observed_at', (site_id, start, end)).fetchall()
-        return [dict(kind=r['kind'], source=r['source'], **json.loads(r['payload'])) for r in rows]
+        events = [dict(kind=r['kind'], source=r['source'], **json.loads(r['payload'])) for r in rows]
+        events = filter_events(events, filters)
+        return self.brands.project(site_id, events, self.brands.configuration(site_id, brand_config_id))
 
     def import_inventory(self, site_id, body):
         site = self.site(site_id)
@@ -126,26 +132,38 @@ class Service:
                     raise LookupError('inventory not found')
         return dict(row, urls=json.loads(row['urls'])) if row else None
 
-    def report(self, site_id, start=None, end=None, inventory_id=None):
+    def report(self, site_id, start=None, end=None, inventory_id=None, filters=None, brand_config_id=None):
         site = self.site(site_id)
-        events = self.events(site_id, start, end)
+        config = self.brands.configuration(site_id, brand_config_id)
+        events = self.events(site_id, start, end, filters, config['id'])
         logs = [e for e in events if e['kind'] == 'logs']
         answers = [e for e in events if e['kind'] == 'answers']
         bots = [e for e in logs if is_ai_event(e)]
         inventory = self.inventory(site_id, inventory_id)
         page_coverage = coverage(inventory, bots)
+        log_excluded = bool(filters and (filters.get('kind') == 'answers' or any(k in filters for k in ('platform', 'surface', 'model'))))
+        if log_excluded:
+            for name in ('observed_pages', 'successful_pages', 'unobserved_pages', 'observed_coverage_rate', 'successful_coverage_rate', 'outside_inventory_urls'):
+                page_coverage[name] = None
+            page_coverage['pages'] = []
         cited = [e for e in answers if any(urlsplit(u).netloc == urlsplit(site['origin']).netloc for u in e['citations'])]
-        return dict(site=site, window=dict(start=start, end=end, end_exclusive=True),
-            log_requests=len(logs), declared_ai_requests=len(bots), verified_ai_requests=0,
-            failed_ai_requests=sum(e['status'] >= 400 for e in bots),
-            observed_ai_pages=len(set(e['url'] for e in bots)),
+        return dict(site=site, window=dict(start=start, end=end, end_exclusive=True), filters=filters or {},
+            brand_config_id=config['id'], brand_definitions=config['brands'],
+            mention_rule=RULE,
+            log_scope='excluded_by_answer_filter' if log_excluded else 'included',
+            log_requests=None if log_excluded else len(logs), declared_ai_requests=None if log_excluded else len(bots),
+            verified_ai_requests=None if log_excluded else 0,
+            failed_ai_requests=None if log_excluded else sum(e['status'] >= 400 for e in bots),
+            observed_ai_pages=None if log_excluded else len(set(e['url'] for e in bots)),
             answer_samples=len(answers), mentioned_samples=sum(bool(e['mentions']) for e in answers),
             cited_site_samples=len(cited), citation_rate=len(cited)/len(answers) if answers else None,
-            brand_mentions={b: sum(b in e['mentions'] for e in answers) for b in site['brands']},
+            brand_mentions={b['name']: sum(b['name'] in e['mentions'] for e in answers) for b in config['brands']},
+            ambiguous_mention_samples=sum(any(d['status'] == 'ambiguous' for d in e['mention_details']) for e in answers),
+            evidence_counts_by_surface={s: sum(e['surface'] == s for e in answers) for s in sorted(set(e['surface'] for e in answers))},
             evidence_counts_by_platform={p: sum(e['platform'] == p for e in answers) for p in sorted(set(e['platform'] for e in answers))},
             coverage_rate=page_coverage['observed_coverage_rate'], coverage=page_coverage,
             successful_coverage_rate=page_coverage['successful_coverage_rate'],
-            search_engine_requests=sum(e.get('crawler_category') == 'search_engine' for e in logs),
+            search_engine_requests=None if log_excluded else sum(e.get('crawler_category') == 'search_engine' for e in logs),
             crawler_rule_versions=sorted(set(e['rule_version'] for e in logs)),
             latest_observed_at=max((e['observed_at'] for e in events), default=None),
             limitations=['UA declarations are unverified; crawl != index or citation.',

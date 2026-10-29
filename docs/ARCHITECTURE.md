@@ -21,7 +21,9 @@ flowchart LR
 | 站点/采集用例 | geo/service.py | 站点范围、批次事务、幂等、品牌匹配、报告 | 上游 API 调用 |
 | 标准契约 | geo/contracts.py | URL、时间、类型与长度校验 | 数据库 |
 | 适配器 | geo/adapters.py | 外部字段映射到稳定事件、UA 声明分类 | SQL、直接写报告 |
-| 存储 | geo/db.py | 连接事务、外键、schema version 3与增量迁移 | 采集逻辑 |
+| 存储 | geo/db.py | 连接事务、外键、schema version 4与增量迁移 | 采集逻辑 |
+| 品牌与复核 | geo/brands.py | 配置版本、稳定品牌ID、别名歧义、审计投影 | 情感、模型推断、真实审核人身份 |
+| 报告导出 | geo/reporting.py | 统一筛选、CSV编码与单元格处理 | 数据存储、后台任务 |
 | 目录与覆盖 | geo/catalog.py、geo/coverage.py | 来源分级、声明分类、清单页面集合对比 | 实际IP/DNS核验、收录或曝光推断 |
 | 站点安全 | geo/security.py、geo/ownership.py | HTTPS挑战、站点日志密钥、有效期和撤销 | 多租户、爬虫身份核验 |
 | 文件采集 | geo/collector.py | JSONL读取、outbox、位点、重命名轮转 | 平台回答采集、后台调度 |
@@ -66,6 +68,8 @@ sites 保存站点 origin、品牌及竞品名称/别名；events 保存 site_id
 具体许可义务、上游溯源和复用前检查见 [THIRD_PARTY_REVIEW.md](THIRD_PARTY_REVIEW.md)。
 
 ## 演进与生产门槛
+
+第四轮新增brand_configs与mention_reviews表，使用不可变配置和追加审计记录；原始回答不变，查询按选定配置重算提及。三种读取形式（报告、明细、CSV）复用同一筛选与投影；详见 [BRANDS_AND_REPORTS.md](BRANDS_AND_REPORTS.md)。
 
 增量：已新增 inventories 不可变快照表（site_id、id、created_at、source、urls），report可固定inventory_id；最新的目录和统计口径以 [COVERAGE_AND_CRAWLERS.md](COVERAGE_AND_CRAWLERS.md) 为准。无清单时仍保留unknown语义，有清单时分别计算观察覆盖与2xx成功覆盖。
 
