@@ -13,7 +13,10 @@ def timestamp(value):
     dt = datetime.fromisoformat(text(value, 'timestamp', 50).replace('Z', '+00:00'))
     if dt.tzinfo is None:
         raise ValueError('timestamp requires timezone')
-    return dt.astimezone(timezone.utc).isoformat()
+    try:
+        return dt.astimezone(timezone.utc).isoformat()
+    except OverflowError:
+        raise ValueError('timestamp outside supported UTC range') from None
 
 
 def url(value):
@@ -21,7 +24,7 @@ def url(value):
         raise ValueError('URL must not contain whitespace or control characters')
     value = text(value, 'url')
     p = urlsplit(value)
-    if p.scheme not in ('https', 'http') or not p.hostname or p.username or p.password:
+    if p.scheme not in ('https', 'http') or not p.hostname or p.username is not None or p.password is not None:
         raise ValueError('expected absolute http(s) URL without credentials')
     host = p.hostname.encode('idna').decode('ascii').lower()
     if ':' in host:

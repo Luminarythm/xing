@@ -101,6 +101,7 @@ class Brands:
                     included=included, reason=text(body.get('reason'), 'reason', 2000),
                     actor='instance_admin', created_at=datetime.now(timezone.utc).isoformat())
         with self.db.connect() as conn:
+            conn.execute('BEGIN IMMEDIATE')
             if not conn.execute("SELECT 1 FROM events WHERE site_id=? AND kind='answers' AND source=? AND event_id=?",
                                 (site_id, item['source'], item['event_id'])).fetchone():
                 raise LookupError('answer not found')
@@ -108,14 +109,14 @@ class Brands:
                          (site_id, config['id'], json.dumps(item, ensure_ascii=False)))
         return item
 
-    def reviews(self, site_id, config_id):
+    def reviews(self, site_id, config_id, max_sequence=9223372036854775807):
         self.configuration(site_id, config_id)
         with self.db.connect() as conn:
             return [json.loads(r[0]) for r in conn.execute(
-                'SELECT payload FROM mention_reviews WHERE site_id=? AND config_id=? ORDER BY sequence', (site_id, config_id))]
+                'SELECT payload FROM mention_reviews WHERE site_id=? AND config_id=? AND sequence<=? ORDER BY sequence', (site_id, config_id, max_sequence))]
 
-    def project(self, site_id, events, config):
-        overrides = {(r['source'], r['event_id'], r['brand_id']): r for r in self.reviews(site_id, config['id'])}
+    def project(self, site_id, events, config, max_review_sequence=9223372036854775807):
+        overrides = {(r['source'], r['event_id'], r['brand_id']): r for r in self.reviews(site_id, config['id'], max_review_sequence)}
         for event in events:
             if event['kind'] != 'answers':
                 continue

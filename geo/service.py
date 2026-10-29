@@ -1,6 +1,7 @@
 import json
 import uuid
 import hashlib
+from contextlib import nullcontext
 from datetime import datetime, timezone
 from urllib.parse import urlsplit
 from .contracts import text, url, timestamp, records
@@ -45,7 +46,7 @@ class Service:
             raise LookupError('site not found')
         return dict(row, brands=json.loads(row['brands']))
 
-    def ingest(self, site_id, kind, body):
+    def ingest(self, site_id, kind, body, connection=None):
         if kind not in ('logs', 'answers'):
             raise ValueError('unsupported event kind')
         site = self.site(site_id)
@@ -70,9 +71,13 @@ class Service:
                 r['mention_rule'] = RULE
             normalized.append(r)
         inserted = 0
-        with self.db.connect() as conn:
-            conn.execute('BEGIN IMMEDIATE')
+        with (self.db.connect() if connection is None else nullcontext(connection)) as conn:
+            if connection is None:
+                conn.execute('BEGIN IMMEDIATE')
+            watermark = conn.execute('SELECT before FROM retention_watermarks WHERE site_id=?', (site_id,)).fetchone()
             for r in normalized:
+                if watermark and r['observed_at'] < watermark['before']:
+                    raise ValueError('event predates the retained data window')
                 key = (site_id, kind, source, r['event_id'])
                 payload = json.dumps(r, ensure_ascii=False, sort_keys=True)
                 old = conn.execute('SELECT payload FROM events WHERE site_id=? AND kind=? AND source=? AND event_id=?', key).fetchone()
@@ -90,6 +95,7 @@ class Service:
                         raise Conflict('event_id already exists with different content')
                     continue
                 conn.execute('INSERT INTO events VALUES(?,?,?,?,?,?)', (*key, r['observed_at'], payload))
+                conn.execute('INSERT INTO event_positions(site_id,kind,source,event_id) VALUES(?,?,?,?)', key)
                 inserted += 1
         return dict(inserted=inserted, duplicates=len(normalized)-inserted)
 

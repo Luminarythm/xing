@@ -21,7 +21,9 @@ flowchart LR
 | 站点/采集用例 | geo/service.py | 站点范围、批次事务、幂等、品牌匹配、报告 | 上游 API 调用 |
 | 标准契约 | geo/contracts.py | URL、时间、类型与长度校验 | 数据库 |
 | 适配器 | geo/adapters.py | 外部字段映射到稳定事件、UA 声明分类 | SQL、直接写报告 |
-| 存储 | geo/db.py | 连接事务、外键、schema version 4与增量迁移 | 采集逻辑 |
+| 存储 | geo/db.py | 连接事务、外键、schema version 5与增量迁移 | 采集逻辑 |
+| 运维 | geo/paging.py、geo/retention.py、geo/backup.py | 签名分页、预览删除、逻辑保留边界、新文件恢复 | TLS、物理擦除、生产灾备 |
+| 模拟采样 | geo/jobs.py | 持久状态、租约、重试和原子完成 | 真实provider、常驻调度 |
 | 品牌与复核 | geo/brands.py | 配置版本、稳定品牌ID、别名歧义、审计投影 | 情感、模型推断、真实审核人身份 |
 | 报告导出 | geo/reporting.py | 统一筛选、CSV编码与单元格处理 | 数据存储、后台任务 |
 | 目录与覆盖 | geo/catalog.py、geo/coverage.py | 来源分级、声明分类、清单页面集合对比 | 实际IP/DNS核验、收录或曝光推断 |

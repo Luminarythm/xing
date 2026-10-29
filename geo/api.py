@@ -8,12 +8,16 @@ from .service import Conflict
 from .security import Security
 from .catalog import catalog
 from .reporting import FILTERS, events_csv
+from .paging import page
+from .retention import Retention
+from .jobs import Jobs
 
 
 def server(service, token, host='127.0.0.1', port=8000, security=None):
     if len(token) < 24:
         raise ValueError('GEO_API_TOKEN must contain at least 24 characters')
     security = security or Security(service)
+    retention, jobs = Retention(service), Jobs(service)
 
     class Handler(BaseHTTPRequestHandler):
         def setup(self):
@@ -71,6 +75,12 @@ def server(service, token, host='127.0.0.1', port=8000, security=None):
                     raise LookupError('route not found')
                 site_id, action = parts[3:]
                 if admin and self.command == 'POST':
+                    if action == 'retention-preview':
+                        return self.send(200, retention.preview(site_id, body.get('before')))
+                    if action == 'retention-execute':
+                        return self.send(200, retention.execute(site_id, body.get('plan_id'), body.get('confirm')))
+                    if action == 'sample-jobs':
+                        return self.send(201, jobs.enqueue(site_id, body))
                     if action == 'brands':
                         return self.send(201, service.brands.configure(site_id, body))
                     if action == 'mention-reviews':
@@ -89,7 +99,7 @@ def server(service, token, host='127.0.0.1', port=8000, security=None):
                     return self.send(200, service.ingest(site_id, action, body))
                 query = parse_qs(p.query, keep_blank_values=True)
                 allowed = {'report': {'start', 'end', 'inventory_id', 'brand_config_id', *FILTERS},
-                           'events': {'start', 'end', 'brand_config_id', *FILTERS},
+                           'events': {'start', 'end', 'brand_config_id', 'limit', 'cursor', *FILTERS},
                            'export.csv': {'start', 'end', 'brand_config_id', *FILTERS},
                            'inventory': {'inventory_id'}, 'brands': {'brand_config_id'},
                            'mention-reviews': {'brand_config_id'}}.get(action, set())
@@ -99,6 +109,8 @@ def server(service, token, host='127.0.0.1', port=8000, security=None):
                 inventory_id = query.get('inventory_id', [None])[0]
                 config_id = query.get('brand_config_id', [None])[0]
                 filters = {k: query[k][0] for k in FILTERS if k in query}
+                if self.command == 'GET' and action == 'sample-jobs':
+                    return self.send(200, jobs.list(site_id))
                 if self.command == 'GET' and action == 'brands':
                     return self.send(200, service.brands.configuration(site_id, config_id))
                 if self.command == 'GET' and action == 'mention-reviews':
@@ -109,7 +121,9 @@ def server(service, token, host='127.0.0.1', port=8000, security=None):
                 if self.command == 'GET' and action == 'inventory':
                     return self.send(200, service.inventory(site_id, inventory_id))
                 if self.command == 'GET' and action in ('report', 'events'):
-                    result = service.report(site_id, start, end, inventory_id, filters, config_id) if action == 'report' else service.events(site_id, start, end, filters, config_id)
+                    result = service.report(site_id, start, end, inventory_id, filters, config_id) if action == 'report' else page(
+                        service, site_id, token, start, end, filters, config_id,
+                        limit=int(query.get('limit', ['100'])[0]), cursor=query.get('cursor', [None])[0])
                     return self.send(200, result)
                 raise LookupError('route not found')
             except (Conflict, sqlite3.IntegrityError):

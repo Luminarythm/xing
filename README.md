@@ -33,6 +33,7 @@ Linux/macOS：`export GEO_API_TOKEN="$(python -c 'import secrets; print(secrets.
 - Nginx JSONL 文件采集器：持久 outbox、断点、重试去重、保留文件的 rename 轮转；详见 [接入指南](docs/INGESTION.md)。
 - 版本化爬虫证据目录、传统搜索/AI分类，以及不可变页面清单快照、观察覆盖率和2xx成功覆盖率。
 - 品牌/竞品与别名配置版本、人工提及复核审计；平台/入口/模型/来源筛选和CSV导出。
+- 事件游标分页、保留删除预览、备份/新文件恢复；可恢复的本地mock采样任务。
 
 ## 接口
 
@@ -44,12 +45,14 @@ Linux/macOS：`export GEO_API_TOKEN="$(python -c 'import secrets; print(secrets.
 | POST | `/api/v1/sites/{id}/logs` | 批量日志 |
 | POST | `/api/v1/sites/{id}/answers` | 批量回答与引用 |
 | GET | `/api/v1/sites/{id}/report` | 基础统计 |
-| GET | `/api/v1/sites/{id}/events` | 证据明细 |
+| GET | `/api/v1/sites/{id}/events` | 分页证据对象items/next_cursor（格式变更） |
 | GET | `/api/v1/crawlers` | 爬虫目录、证据和待核实项 |
 | POST / GET | `/api/v1/sites/{id}/inventory` | 导入 / 读取页面清单快照 |
 | POST / GET | `/api/v1/sites/{id}/brands` | 保存 / 读取品牌配置版本 |
 | POST / GET | `/api/v1/sites/{id}/mention-reviews` | 人工提及复核 / 审计历史 |
 | GET | `/api/v1/sites/{id}/export.csv` | 导出经过统一筛选的事件CSV |
+| POST | `/api/v1/sites/{id}/retention-preview`、`retention-execute` | 预览 / 确认删除过期数据 |
+| POST / GET | `/api/v1/sites/{id}/sample-jobs` | 创建 / 查看本地模拟采样任务 |
 
 报告/明细支持 `?start=2026-10-28T16:00:00Z&end=2026-10-29T16:00:00Z`（北京时间 10 月 29 日，左闭右开）。省略则取全部数据。`+08:00` 用作查询参数时必须 URL 编码加号。错误：400 输入非法，401 未授权，404 不存在，409 重复站点/冲突事件，413 超限。
 
@@ -60,7 +63,7 @@ Linux/macOS：`export GEO_API_TOKEN="$(python -c 'import secrets; print(secrets.
 
 ## 范围与下一步
 
-默认仅监听 127.0.0.1；这是本地验证服务，未完成公网生产加固、多租户、分页、任务调度和真实平台调用。GEO_API_TOKEN 为实例管理权限；采集器使用单站点 GEO_INGEST_TOKEN。登记站点并不证明域名所有权，须另完成 HTTPS 挑战。回答正文可能含敏感信息，导入前脱敏；data/ 目录不得提交公开仓库。旧数据库自动升级到 schema v4，升级前建议备份。
+默认仅监听 127.0.0.1；这是本地验证服务，未完成公网生产加固、多租户、常驻调度和真实平台调用。事件已支持分页，报告/导出仍为全量读取。GEO_API_TOKEN 为实例管理权限；采集器使用单站点 GEO_INGEST_TOKEN。登记站点并不证明域名所有权，须另完成 HTTPS 挑战。回答正文可能含敏感信息，导入前脱敏；data/ 目录不得提交公开仓库。旧数据库自动升级到 schema v5，升级前建议备份。
 
 爬虫 UA 声明不是已验证身份，抓取不等于收录/引用。没有页面清单时覆盖率为 null；没有回答样本时引用率为 null。品牌匹配为字面匹配，不判断情感、语义或推荐位次。
 
@@ -70,4 +73,6 @@ Linux/macOS：`export GEO_API_TOKEN="$(python -c 'import secrets; print(secrets.
 
 [爬虫证据目录与页面覆盖](docs/COVERAGE_AND_CRAWLERS.md)：报告可传 inventory_id 固定快照分母；全新演示站点观察覆盖率2/3、成功覆盖率1/3。
 
-[品牌、人工复核与筛选导出](docs/BRANDS_AND_REPORTS.md)：支持platform、surface、model、source和kind筛选，以及brand_config_id固定匹配定义。数据库已升级至schema v4。
+[品牌、人工复核与筛选导出](docs/BRANDS_AND_REPORTS.md)：支持platform、surface、model、source和kind筛选，以及brand_config_id固定匹配定义。
+
+[分页、保留删除、备份恢复与模拟任务](docs/OPERATIONS.md)：当前schema v5；events默认100条，最多500条，需按next_cursor翻页。report/CSV仍为全量实时查询。

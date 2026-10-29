@@ -20,7 +20,7 @@ class Database:
         Path(path).parent.mkdir(parents=True, exist_ok=True)
         with self.connect() as conn:
             version = conn.execute('PRAGMA user_version').fetchone()[0]
-            if version not in (0, 1, 2, 3, 4):
+            if version not in (0, 1, 2, 3, 4, 5):
                 raise RuntimeError('unsupported database schema version')
             if version == 0:
                 conn.executescript(SCHEMA)
@@ -54,6 +54,24 @@ class Database:
                   config_id TEXT NOT NULL, payload TEXT NOT NULL);
                 CREATE INDEX IF NOT EXISTS reviews_scope ON mention_reviews(site_id,config_id,sequence);
                 PRAGMA user_version=4;
+                COMMIT;''')
+            if version < 5:
+                conn.executescript('''BEGIN IMMEDIATE;
+                CREATE TABLE IF NOT EXISTS event_positions (
+                  sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+                  site_id TEXT NOT NULL, kind TEXT NOT NULL, source TEXT NOT NULL, event_id TEXT NOT NULL,
+                  UNIQUE(site_id,kind,source,event_id),
+                  FOREIGN KEY(site_id,kind,source,event_id) REFERENCES events(site_id,kind,source,event_id) ON DELETE CASCADE);
+                INSERT OR IGNORE INTO event_positions(site_id,kind,source,event_id)
+                  SELECT site_id,kind,source,event_id FROM events ORDER BY rowid;
+                CREATE TABLE IF NOT EXISTS retention_plans(id TEXT PRIMARY KEY, site_id TEXT NOT NULL REFERENCES sites(id), payload TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS retention_watermarks(site_id TEXT PRIMARY KEY REFERENCES sites(id), before TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS sample_jobs (
+                  id TEXT PRIMARY KEY, site_id TEXT NOT NULL REFERENCES sites(id), request_key TEXT NOT NULL,
+                  observed_at TEXT NOT NULL, record TEXT NOT NULL, state TEXT NOT NULL,
+                  attempts INTEGER NOT NULL DEFAULT 0, next_at REAL NOT NULL, lease TEXT, lease_until REAL,
+                  error TEXT, UNIQUE(site_id,request_key));
+                PRAGMA user_version=5;
                 COMMIT;''')
 
     @contextmanager
