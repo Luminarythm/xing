@@ -68,3 +68,28 @@ def review_page(service, site_id, secret, brand_config_id=None, limit=100, curso
         next_cursor = encode(state, secret)
     return dict(items=items, next_cursor=next_cursor, limit=limit, brand_config_id=state['config'],
                 review_high_watermark=state['high'], order='review_sequence')
+
+
+def site_page(service, secret, limit=100, cursor=None):
+    if type(limit) is not int or not 1 <= limit <= 500:
+        raise ValueError('limit must be 1..500')
+    scope = dict(resource='sites')
+    if cursor:
+        state = decode(cursor, secret, scope)
+    else:
+        with service.db.connect() as conn:
+            high = conn.execute('SELECT COALESCE(MAX(sequence),0) FROM site_positions').fetchone()[0]
+        state = dict(scope=scope, after=0, high=high, expires=time.time()+3600)
+    with service.db.connect() as conn:
+        rows = read_rows(conn.execute('''SELECT p.sequence,json_object(
+            'id',s.id,'name',s.name,'origin',s.origin,'brands',json(s.brands)) AS payload
+            FROM site_positions p JOIN sites s ON s.id=p.site_id
+            WHERE p.sequence>? AND p.sequence<=? ORDER BY p.sequence LIMIT ?''',
+            (state['after'], state['high'], limit+1)), limit+1, service.limits.query_bytes)
+    more, rows = len(rows) > limit, rows[:limit]
+    next_cursor = None
+    if more:
+        state['after'] = rows[-1]['sequence']
+        next_cursor = encode(state, secret)
+    return dict(items=[json.loads(row['payload']) for row in rows], next_cursor=next_cursor,
+                limit=limit, site_high_watermark=state['high'], order='registration_sequence')

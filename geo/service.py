@@ -10,7 +10,7 @@ from .catalog import is_ai_event
 from .coverage import coverage
 from .brands import Brands, classify_mentions, RULE
 from .reporting import normalize_filters, query_predicate
-from .limits import Limits, read_rows
+from .limits import Limits, read_rows, json_bytes, CapacityExceeded
 
 
 class Conflict(ValueError):
@@ -35,6 +35,7 @@ class Service:
         with self.db.connect() as conn:
             conn.execute('INSERT INTO sites VALUES(?,?,?,?)',
                          (site['id'], site['name'], site['origin'], json.dumps(brands)))
+            conn.execute('INSERT INTO site_positions(site_id) VALUES(?)', (site['id'],))
         return site
 
     def sites(self):
@@ -126,20 +127,29 @@ class Service:
             raise ValueError('inventory URL host must match registered site')
         item = dict(id=str(uuid.uuid4()), site_id=site_id,
                     created_at=datetime.now(timezone.utc).isoformat(), source=source, urls=urls)
+        serialized = json_bytes(urls, self.limits.query_bytes).decode('utf-8')
+        # A successful import must have a deliverable response before committing.
+        json_bytes(item, self.limits.response_bytes)
         with self.db.connect() as conn:
             conn.execute('INSERT INTO inventories(id,site_id,created_at,source,urls) VALUES(?,?,?,?,?)',
-                         (item['id'], site_id, item['created_at'], source, json.dumps(urls)))
+                         (item['id'], site_id, item['created_at'], source, serialized))
         return item
 
     def inventory(self, site_id, inventory_id=None):
         self.site(site_id)
         with self.db.connect() as conn:
+            conn.execute('BEGIN')
             if inventory_id is None:
-                row = conn.execute('SELECT * FROM inventories WHERE site_id=? ORDER BY sequence DESC LIMIT 1', (site_id,)).fetchone()
+                metadata = conn.execute('SELECT id,length(CAST(urls AS BLOB)) AS bytes FROM inventories WHERE site_id=? ORDER BY sequence DESC LIMIT 1', (site_id,)).fetchone()
             else:
-                row = conn.execute('SELECT * FROM inventories WHERE site_id=? AND id=?', (site_id, inventory_id)).fetchone()
-                if row is None:
+                metadata = conn.execute('SELECT id,length(CAST(urls AS BLOB)) AS bytes FROM inventories WHERE site_id=? AND id=?', (site_id, inventory_id)).fetchone()
+                if metadata is None:
                     raise LookupError('inventory not found')
+            if metadata is None:
+                return None
+            if metadata['bytes'] > self.limits.query_bytes:
+                raise CapacityExceeded('inventory capacity exceeded; use a smaller snapshot or increase the configured budget')
+            row = conn.execute('SELECT * FROM inventories WHERE site_id=? AND id=?', (site_id, metadata['id'])).fetchone()
         return dict(row, urls=json.loads(row['urls'])) if row else None
 
     def report(self, site_id, start=None, end=None, inventory_id=None, filters=None, brand_config_id=None):

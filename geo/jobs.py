@@ -87,4 +87,4 @@ if __name__ == '__main__':
     from .service import Service
     parser = argparse.ArgumentParser(description='Run at most one persisted local synthetic sampling job.')
     parser.parse_args()
-    print(json.dumps(Jobs(Service(Database(os.getenv('GEO_DB', 'data/geo.sqlite3')))).run_one()))
+    print(json.dumps(Jobs(Service(Database.from_env(os.getenv('GEO_DB', 'data/geo.sqlite3')))).run_one()))

@@ -14,10 +14,10 @@ def runtime_status(service):
         conn.set_progress_handler(lambda: int(time.monotonic() > deadline), 1000)
         conn.execute('BEGIN')
         version = conn.execute('PRAGMA user_version').fetchone()[0]
-        if version != 5:
+        if version != 6:
             raise sqlite3.DatabaseError('unsupported schema')
         required = {'sites', 'events', 'inventories', 'brand_configs', 'mention_reviews', 'site_security',
-                    'ingest_keys', 'event_positions', 'retention_plans', 'retention_watermarks', 'sample_jobs'}
+                    'ingest_keys', 'event_positions', 'retention_plans', 'retention_watermarks', 'sample_jobs', 'site_positions'}
         tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         if not required <= tables:
             raise sqlite3.DatabaseError('missing required tables')
@@ -29,6 +29,7 @@ def runtime_status(service):
         expired = conn.execute("SELECT COUNT(*) FROM sample_jobs WHERE state='running' AND lease_until<=?", (now,)).fetchone()[0]
         return dict(status='ok', schema_version=version, counts=counts,
                     jobs=dict(by_state=jobs, due=due, expired_leases=expired),
-                    limits=asdict(service.limits), providers=['mock'], bind_scope='loopback_by_default')
+                    limits=asdict(service.limits), providers=['mock'], bind_scope='loopback_by_default',
+                    database_timeouts_ms=dict(busy=service.db.busy_timeout_ms, query=service.db.query_timeout_ms))
     finally:
         conn.close()

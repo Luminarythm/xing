@@ -102,7 +102,7 @@ class SecurityCollectorTest(unittest.TestCase):
         database = Database(path)
         self.assertEqual(Service(database).site('old')['name'], 'old')
         with database.connect() as conn:
-            self.assertEqual(conn.execute('PRAGMA user_version').fetchone()[0], 5)
+            self.assertEqual(conn.execute('PRAGMA user_version').fetchone()[0], 6)
 
     def test_batch_limit_and_repeated_runs_drain_backlog(self):
         self.write([self.row] * 101)

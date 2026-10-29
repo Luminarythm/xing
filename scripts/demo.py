@@ -2,6 +2,7 @@
 import json
 import os
 from urllib.request import Request, urlopen
+from urllib.parse import urlencode
 
 base = 'http://127.0.0.1:' + os.getenv('GEO_PORT', '8000')
 token = os.environ['GEO_API_TOKEN']
@@ -15,8 +16,13 @@ def call(path, body=None):
         return json.load(response)
 
 
-sites = call('sites')
-site = next((s for s in sites if s['origin'] == 'https://demo.example'), None)
+site, cursor = None, None
+while True:
+    result = call('sites' + ('?' + urlencode({'cursor': cursor}) if cursor else ''))
+    site = next((s for s in result['items'] if s['origin'] == 'https://demo.example'), None)
+    cursor = result['next_cursor']
+    if site or not cursor:
+        break
 if not site:
     site = call('sites', dict(name='星舟（合成演示）', url='https://demo.example', brands=['星舟', '竞品甲']))
 prefix = 'sites/' + site['id']

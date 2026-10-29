@@ -8,7 +8,7 @@ from .service import Conflict
 from .security import Security
 from .catalog import catalog
 from .reporting import FILTERS, events_csv
-from .paging import page, review_page
+from .paging import page, review_page, site_page
 from .retention import Retention
 from .jobs import Jobs
 from .limits import CapacityExceeded, json_bytes
@@ -30,11 +30,13 @@ def server(service, token, host='127.0.0.1', port=8000, security=None):
             pass  # Avoid writing tokens, prompts or user-supplied URLs to logs.
 
         def send(self, status, value):
-            data = json_bytes(value, service.limits.response_bytes) if self.command == 'GET' and status < 400 else json.dumps(value).encode()
+            data = json_bytes(value, service.limits.response_bytes) if self.command == 'GET' and status < 400 else json.dumps(value, ensure_ascii=False).encode()
             self.send_response(status)
             self.send_header('Content-Type', 'application/json; charset=utf-8')
             self.send_header('Content-Length', str(len(data)))
             self.send_header('Cache-Control', 'no-store')
+            if status == 503 and value.get('code') == 'database_busy':
+                self.send_header('Retry-After', '1')
             self.end_headers()
             self.wfile.write(data)
 
@@ -70,7 +72,12 @@ def server(service, token, host='127.0.0.1', port=8000, security=None):
                     if not isinstance(body, dict):
                         raise ValueError('JSON body must be an object')
                 if p.path == '/api/v1/sites':
-                    return self.send(201, service.create_site(body)) if body is not None else self.send(200, service.sites())
+                    query = parse_qs(p.query, keep_blank_values=True)
+                    allowed = {'limit', 'cursor'} if self.command == 'GET' else set()
+                    if set(query) - allowed or any(len(v) != 1 or not v[0].strip() for v in query.values()):
+                        raise ValueError('unknown, repeated or empty query parameter')
+                    return self.send(201, service.create_site(body)) if body is not None else self.send(200, site_page(
+                        service, token, limit=int(query.get('limit', ['100'])[0]), cursor=query.get('cursor', [None])[0]))
                 if admin and self.command == 'GET' and p.path == '/api/v1/crawlers':
                     return self.send(200, catalog())
                 if admin and self.command == 'GET' and p.path == '/api/v1/status':
@@ -140,6 +147,14 @@ def server(service, token, host='127.0.0.1', port=8000, security=None):
                 self.send(422, {'error': str(exc), 'code': 'capacity_exceeded'})
             except (Conflict, sqlite3.IntegrityError):
                 self.send(409, {'error': 'duplicate site or conflicting event identity'})
+            except sqlite3.OperationalError as exc:
+                code = getattr(exc, 'sqlite_errorcode', 0) & 255
+                if code in (sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED):
+                    self.send(503, {'error': 'database busy; retry after a delay', 'code': 'database_busy', 'retryable': True})
+                elif code == sqlite3.SQLITE_INTERRUPT:
+                    self.send(503, {'error': 'database query deadline exceeded; reduce the query scope', 'code': 'query_timeout', 'retryable': False})
+                else:
+                    self.send(500, {'error': 'internal error'})
             except PermissionError:
                 self.send(403, {'error': 'site ownership must be verified'})
             except (ValueError, TypeError, KeyError, UnicodeError) as exc:
