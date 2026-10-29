@@ -1,6 +1,6 @@
 # 架构决策 ADR-001：先建立证据闭环
 
-状态：已实现本地 MVP；日期：2026-10-29。目标是验证中国大陆 AI 产品的抓取与回答曝光证据，不输出无法解释的 GEO 综合分。
+状态：已实现本地 MVP 及 P01/P02 本地接入能力；日期：2026-10-29。目标是验证中国大陆 AI 产品的抓取与回答曝光证据，不输出无法解释的 GEO 综合分。最新验证和采集契约见 [INGESTION.md](INGESTION.md)。
 
 ## 模块边界
 
@@ -21,7 +21,9 @@ flowchart LR
 | 站点/采集用例 | geo/service.py | 站点范围、批次事务、幂等、品牌匹配、报告 | 上游 API 调用 |
 | 标准契约 | geo/contracts.py | URL、时间、类型与长度校验 | 数据库 |
 | 适配器 | geo/adapters.py | 外部字段映射到稳定事件、UA 声明分类 | SQL、直接写报告 |
-| 存储 | geo/db.py | 连接事务、外键、schema version 1 | 采集逻辑 |
+| 存储 | geo/db.py | 连接事务、外键、schema version 2与增量迁移 | 采集逻辑 |
+| 站点安全 | geo/security.py、geo/ownership.py | HTTPS挑战、站点日志密钥、有效期和撤销 | 多租户、爬虫身份核验 |
+| 文件采集 | geo/collector.py | JSONL读取、outbox、位点、重命名轮转 | 平台回答采集、后台调度 |
 | 演示与回归 | scripts/demo.py、tests/ | HTTP 演示、数据与权限测试 | 真实平台表现背书 |
 
 选择 Python 标准库减少首轮安装与网络依赖；SQLite 适合单机低流量验证。以后在 Service 用例边界引入仓储接口迁移 PostgreSQL，不让各采集器直接写数据库。当前报告与采集用例在同一模块，规模扩大后拆 report service；暂不引入微服务、Redis 和异步队列。
@@ -41,7 +43,7 @@ sites 保存站点 origin、品牌及竞品名称/别名；events 保存 site_id
 
 现有 `Adapter.normalize(record)->dict`、LOG_ADAPTERS、ANSWER_ADAPTERS 是显式注册表。json-v1 和 nginx-json-v1 输出一致日志模型，manual-v1 输出回答模型。新平台必须经 Service 校验、事务与去重后落库，禁止绕过服务写事实表。
 
-后续将有副作用的 Collector 独立于纯 Adapter：`collect(cursor,budget)->batch,next_cursor`。Collector 管密钥、超时、分页、退避、限额与检查点；Adapter 管格式；队列管状态 queued/running/succeeded/failed 与重试。仅持久提交成功才推进 cursor，失败保留原始批次标识。首轮未实现后台轮询、文件 tail、CDN 拉取或任何付费 API 调用。
+有副作用的 Collector 已独立于纯 Adapter：文件采集器负责读取、批次、outbox、检查点和单次HTTP发送；Adapter 管格式。仅持久提交确认后推进 cursor，失败保留原始批次等待下一次执行。后续队列负责 queued/running/succeeded/failed、限额与退避；尚未实现后台轮询、CDN 拉取或任何付费 API 调用。
 
 大陆产品接入优先采用运营者合法取得的人工导出/官方服务，候选包括豆包、DeepSeek、Kimi、通义、文心、腾讯元宝；每一项在接入前确认官方接口能力和使用条件。模型 API、联网搜索 API 与消费产品 UI 必须分开标记。无法获得来源列表时 citations 留空，不能把回答中随意出现的网址自动包装为已验证引用。
 

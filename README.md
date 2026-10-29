@@ -29,6 +29,8 @@ Linux/macOS：`export GEO_API_TOKEN="$(python -c 'import secrets; print(secrets.
 - 基础报告：声明 AI 请求、失败请求、观察到的页面、品牌提及、本站引用及样本引用率。
 - 证据读取：原始回答及规范化日志可通过 events 接口追溯；URL 查询参数、IP、原始 UA 不入库。
 - Bearer 鉴权、2 MB 请求限制、1000 条批次限制、UTC 规范化、数据库版本和自动测试。
+- HTTPS 静态文件所有权挑战、验证有效期、站点专属日志密钥、密钥撤销/轮换。
+- Nginx JSONL 文件采集器：持久 outbox、断点、重试去重、保留文件的 rename 轮转；详见 [接入指南](docs/INGESTION.md)。
 
 ## 接口
 
@@ -51,8 +53,10 @@ Linux/macOS：`export GEO_API_TOKEN="$(python -c 'import secrets; print(secrets.
 
 ## 范围与下一步
 
-默认仅监听 127.0.0.1；这是本地验证服务，未完成公网生产加固、多租户、所有权验证、分页、任务调度和真实平台调用。token 为整个实例的管理权限。登记站点并不证明域名所有权。回答正文可能含敏感信息，导入前脱敏；data/ 目录不得提交公开仓库。
+默认仅监听 127.0.0.1；这是本地验证服务，未完成公网生产加固、多租户、分页、任务调度和真实平台调用。GEO_API_TOKEN 为实例管理权限；采集器使用单站点 GEO_INGEST_TOKEN。登记站点并不证明域名所有权，须另完成 HTTPS 挑战。回答正文可能含敏感信息，导入前脱敏；data/ 目录不得提交公开仓库。旧数据库自动升级到 schema v2，升级前建议备份。
 
 爬虫 UA 声明不是已验证身份，抓取不等于收录/引用。没有页面清单时覆盖率为 null；没有回答样本时引用率为 null。品牌匹配为字面匹配，不判断情感、语义或推荐位次。
 
 [架构与参考项目评估](docs/ARCHITECTURE.md) · [第一阶段任务清单](docs/PHASE1.md) · [许可证审查记录](docs/THIRD_PARTY_REVIEW.md)
+
+[站点验证与日志采集指南](docs/INGESTION.md) · [本轮缺陷复查](docs/BUG_REVIEW.md)

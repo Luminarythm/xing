@@ -20,9 +20,20 @@ class Database:
         Path(path).parent.mkdir(parents=True, exist_ok=True)
         with self.connect() as conn:
             version = conn.execute('PRAGMA user_version').fetchone()[0]
-            if version not in (0, 1):
+            if version not in (0, 1, 2):
                 raise RuntimeError('unsupported database schema version')
-            conn.executescript(SCHEMA)
+            if version == 0:
+                conn.executescript(SCHEMA)
+            if version < 2:
+                conn.executescript('''BEGIN IMMEDIATE;
+                CREATE TABLE IF NOT EXISTS site_security (
+                  site_id TEXT PRIMARY KEY REFERENCES sites(id), challenge TEXT,
+                  expires_at REAL, verified_until REAL NOT NULL DEFAULT 0);
+                CREATE TABLE IF NOT EXISTS ingest_keys (
+                  id TEXT PRIMARY KEY, site_id TEXT NOT NULL REFERENCES sites(id),
+                  digest TEXT NOT NULL UNIQUE, created_at REAL NOT NULL, revoked INTEGER NOT NULL DEFAULT 0);
+                PRAGMA user_version=2;
+                COMMIT;''')
 
     @contextmanager
     def connect(self):

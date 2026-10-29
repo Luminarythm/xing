@@ -1,5 +1,6 @@
 """Replaceable, side-effect-free adapters. No database or HTTP dependencies."""
 from typing import Protocol
+import re
 from .contracts import text, timestamp, url
 
 
@@ -51,6 +52,6 @@ ANSWER_ADAPTERS = {'manual-v1': ManualAnswerAdapter()}
 def classify(ua):
     # A declaration is not verified identity. Keep this catalog small and versioned.
     for token in ('GPTBot', 'OAI-SearchBot', 'ChatGPT-User', 'ClaudeBot', 'PerplexityBot'):
-        if token.casefold() in ua.casefold():
-            return {'declared_bot': token, 'verification': 'unverified', 'rule_version': '1'}
-    return {'declared_bot': None, 'verification': 'unknown', 'rule_version': '1'}
+        if re.search(r'(?<![\w-])' + re.escape(token) + r'(?![\w-])', ua, re.I):
+            return {'declared_bot': token, 'verification': 'unverified', 'rule_version': '2'}
+    return {'declared_bot': None, 'verification': 'unknown', 'rule_version': '2'}

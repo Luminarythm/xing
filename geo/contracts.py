@@ -17,10 +17,15 @@ def timestamp(value):
 
 
 def url(value):
-    p = urlsplit(text(value, 'url'))
+    if isinstance(value, str) and any(ord(c) < 33 or ord(c) == 127 for c in value):
+        raise ValueError('URL must not contain whitespace or control characters')
+    value = text(value, 'url')
+    p = urlsplit(value)
     if p.scheme not in ('https', 'http') or not p.hostname or p.username or p.password:
         raise ValueError('expected absolute http(s) URL without credentials')
     host = p.hostname.encode('idna').decode('ascii').lower()
+    if ':' in host:
+        host = f'[{host}]'
     port = p.port
     if port and port != {'https': 443, 'http': 80}[p.scheme]:
         host += f':{port}'

@@ -5,11 +5,13 @@ import sqlite3
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlsplit, parse_qs
 from .service import Conflict
+from .security import Security
 
 
-def server(service, token, host='127.0.0.1', port=8000):
+def server(service, token, host='127.0.0.1', port=8000, security=None):
     if len(token) < 24:
         raise ValueError('GEO_API_TOKEN must contain at least 24 characters')
+    security = security or Security(service)
 
     class Handler(BaseHTTPRequestHandler):
         def setup(self):
@@ -33,8 +35,14 @@ def server(service, token, host='127.0.0.1', port=8000):
                 p = urlsplit(self.path)
                 if self.command == 'GET' and p.path == '/health':
                     return self.send(200, {'status': 'ok'})
-                if not hmac.compare_digest(self.headers.get('Authorization', ''), 'Bearer ' + token):
-                    return self.send(401, {'error': 'unauthorized'})
+                auth = self.headers.get('Authorization', '')
+                admin = hmac.compare_digest(auth.encode(), ('Bearer ' + token).encode())
+                parts = p.path.strip('/').split('/')
+                scoped = (len(parts) == 5 and parts[:3] == ['api', 'v1', 'sites']
+                          and parts[4] == 'logs' and self.command == 'POST')
+                if not admin:
+                    if not (scoped and auth.startswith('Bearer ') and security.permits(auth[7:], parts[3])):
+                        return self.send(401, {'error': 'unauthorized'})
                 body = None
                 if self.command == 'POST':
                     size = int(self.headers.get('Content-Length', '0'))
@@ -45,10 +53,18 @@ def server(service, token, host='127.0.0.1', port=8000):
                         raise ValueError('JSON body must be an object')
                 if p.path == '/api/v1/sites':
                     return self.send(201, service.create_site(body)) if body is not None else self.send(200, service.sites())
-                parts = p.path.strip('/').split('/')
                 if len(parts) != 5 or parts[:3] != ['api', 'v1', 'sites']:
                     raise LookupError('route not found')
                 site_id, action = parts[3:]
+                if admin and self.command == 'POST':
+                    if action == 'ownership-challenge':
+                        return self.send(200, security.challenge(site_id))
+                    if action == 'ownership-verify':
+                        return self.send(200, security.verify(site_id))
+                    if action == 'ingest-keys':
+                        return self.send(201, security.issue(site_id))
+                    if action == 'revoke-key':
+                        return self.send(200, security.revoke(site_id, body.get('key_id')))
                 if self.command == 'POST' and action in ('logs', 'answers'):
                     return self.send(200, service.ingest(site_id, action, body))
                 query = parse_qs(p.query)
@@ -59,6 +75,8 @@ def server(service, token, host='127.0.0.1', port=8000):
                 raise LookupError('route not found')
             except (Conflict, sqlite3.IntegrityError):
                 self.send(409, {'error': 'duplicate site or conflicting event identity'})
+            except PermissionError:
+                self.send(403, {'error': 'site ownership must be verified'})
             except (ValueError, TypeError, KeyError, UnicodeError) as exc:
                 self.send(400, {'error': str(exc)})
             except LookupError:

@@ -1,5 +1,6 @@
 import json
 import uuid
+import hashlib
 from urllib.parse import urlsplit
 from .contracts import text, url, timestamp, records
 from .adapters import LOG_ADAPTERS, ANSWER_ADAPTERS, classify
@@ -52,19 +53,30 @@ class Service:
             if kind == 'logs':
                 if urlsplit(r['url']).netloc != urlsplit(site['origin']).netloc:
                     raise ValueError('log URL host must match registered site')
-                r.update(classify(r.pop('user_agent')))
+                ua = r.pop('user_agent')
+                r['user_agent_hash'] = hashlib.sha256(ua.encode()).hexdigest()
+                r.update(classify(ua))
             else:
                 r['mentions'] = [b for b in site['brands'] if b.casefold() in r['answer'].casefold()]
                 r['mention_rule'] = 'literal-casefold-v1'
             normalized.append(r)
         inserted = 0
         with self.db.connect() as conn:
+            conn.execute('BEGIN IMMEDIATE')
             for r in normalized:
                 key = (site_id, kind, source, r['event_id'])
                 payload = json.dumps(r, ensure_ascii=False, sort_keys=True)
                 old = conn.execute('SELECT payload FROM events WHERE site_id=? AND kind=? AND source=? AND event_id=?', key).fetchone()
                 if old:
-                    if old['payload'] != payload:
+                    previous = json.loads(old['payload'])
+                    incoming = dict(r)
+                    # Rule changes must not turn a replay into a conflict or rewrite history.
+                    for key_name in ('declared_bot', 'verification', 'rule_version', 'mentions', 'mention_rule'):
+                        previous.pop(key_name, None)
+                        incoming.pop(key_name, None)
+                    if 'user_agent_hash' not in previous:
+                        incoming.pop('user_agent_hash', None)  # v1 did not retain UA evidence.
+                    if previous != incoming:
                         raise Conflict('event_id already exists with different content')
                     continue
                 conn.execute('INSERT INTO events VALUES(?,?,?,?,?,?)', (*key, r['observed_at'], payload))
