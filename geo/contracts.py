@@ -27,6 +27,8 @@ def url(value):
     if ':' in host:
         host = f'[{host}]'
     port = p.port
+    if port == 0:
+        raise ValueError('URL port must be between 1 and 65535')
     if port and port != {'https': 443, 'http': 80}[p.scheme]:
         host += f':{port}'
     # Query strings may contain credentials or personal data; never persist them.

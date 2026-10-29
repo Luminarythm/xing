@@ -20,6 +20,9 @@ site = next((s for s in sites if s['origin'] == 'https://demo.example'), None)
 if not site:
     site = call('sites', dict(name='星舟（合成演示）', url='https://demo.example', brands=['星舟', '竞品甲']))
 prefix = 'sites/' + site['id']
+if call(prefix + '/inventory') is None:
+    call(prefix + '/inventory', dict(source='synthetic-demo', urls=[
+        'https://demo.example/product', 'https://demo.example/missing', 'https://demo.example/unseen']))
 call(prefix + '/logs', dict(adapter='json-v1', source='synthetic-demo', records=[
     dict(event_id='demo-log-1', observed_at='2026-10-29T09:00:00+08:00',
          url='https://demo.example/product', status=200, user_agent='GPTBot'),

@@ -6,6 +6,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlsplit, parse_qs
 from .service import Conflict
 from .security import Security
+from .catalog import catalog
 
 
 def server(service, token, host='127.0.0.1', port=8000, security=None):
@@ -53,10 +54,14 @@ def server(service, token, host='127.0.0.1', port=8000, security=None):
                         raise ValueError('JSON body must be an object')
                 if p.path == '/api/v1/sites':
                     return self.send(201, service.create_site(body)) if body is not None else self.send(200, service.sites())
+                if admin and self.command == 'GET' and p.path == '/api/v1/crawlers':
+                    return self.send(200, catalog())
                 if len(parts) != 5 or parts[:3] != ['api', 'v1', 'sites']:
                     raise LookupError('route not found')
                 site_id, action = parts[3:]
                 if admin and self.command == 'POST':
+                    if action == 'inventory':
+                        return self.send(201, service.import_inventory(site_id, body))
                     if action == 'ownership-challenge':
                         return self.send(200, security.challenge(site_id))
                     if action == 'ownership-verify':
@@ -69,8 +74,11 @@ def server(service, token, host='127.0.0.1', port=8000, security=None):
                     return self.send(200, service.ingest(site_id, action, body))
                 query = parse_qs(p.query)
                 start, end = query.get('start', [None])[0], query.get('end', [None])[0]
+                inventory_id = query.get('inventory_id', [None])[0]
+                if self.command == 'GET' and action == 'inventory':
+                    return self.send(200, service.inventory(site_id, inventory_id))
                 if self.command == 'GET' and action in ('report', 'events'):
-                    result = service.report(site_id, start, end) if action == 'report' else service.events(site_id, start, end)
+                    result = service.report(site_id, start, end, inventory_id) if action == 'report' else service.events(site_id, start, end)
                     return self.send(200, result)
                 raise LookupError('route not found')
             except (Conflict, sqlite3.IntegrityError):

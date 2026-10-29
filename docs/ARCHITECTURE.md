@@ -21,7 +21,8 @@ flowchart LR
 | 站点/采集用例 | geo/service.py | 站点范围、批次事务、幂等、品牌匹配、报告 | 上游 API 调用 |
 | 标准契约 | geo/contracts.py | URL、时间、类型与长度校验 | 数据库 |
 | 适配器 | geo/adapters.py | 外部字段映射到稳定事件、UA 声明分类 | SQL、直接写报告 |
-| 存储 | geo/db.py | 连接事务、外键、schema version 2与增量迁移 | 采集逻辑 |
+| 存储 | geo/db.py | 连接事务、外键、schema version 3与增量迁移 | 采集逻辑 |
+| 目录与覆盖 | geo/catalog.py、geo/coverage.py | 来源分级、声明分类、清单页面集合对比 | 实际IP/DNS核验、收录或曝光推断 |
 | 站点安全 | geo/security.py、geo/ownership.py | HTTPS挑战、站点日志密钥、有效期和撤销 | 多租户、爬虫身份核验 |
 | 文件采集 | geo/collector.py | JSONL读取、outbox、位点、重命名轮转 | 平台回答采集、后台调度 |
 | 演示与回归 | scripts/demo.py、tests/ | HTTP 演示、数据与权限测试 | 真实平台表现背书 |
@@ -65,5 +66,7 @@ sites 保存站点 origin、品牌及竞品名称/别名；events 保存 site_id
 具体许可义务、上游溯源和复用前检查见 [THIRD_PARTY_REVIEW.md](THIRD_PARTY_REVIEW.md)。
 
 ## 演进与生产门槛
+
+增量：已新增 inventories 不可变快照表（site_id、id、created_at、source、urls），report可固定inventory_id；最新的目录和统计口径以 [COVERAGE_AND_CRAWLERS.md](COVERAGE_AND_CRAWLERS.md) 为准。无清单时仍保留unknown语义，有清单时分别计算观察覆盖与2xx成功覆盖。
 
 阶段1先接一个授权站点，证明真实日志可以稳定流入，人工回答证据可复核。后续再做页面清单、中文品牌消歧、平台分层报告和 worker。公网部署前须完成域名所有权验证、组织/站点授权、站点采集密钥、TLS 网关与限流、分页和保留/删除策略、备份恢复演练。当前全量事件读取不适合大数据集，stdlib HTTP server 不作为公网生产服务器。
