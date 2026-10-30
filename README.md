@@ -86,6 +86,8 @@ Linux/macOS：`export GEO_API_TOKEN="$(python -c 'import secrets; print(secrets.
 # 人工样本准备
 
 `python -m geo.samples examples/manual-samples.jsonl` 可离线校验人工回答JSONL，输出逐行错误、警告及汇总，不联网、不写库。[样本格式与证据矩阵](docs/MANUAL_SAMPLES.md)说明填写要求与容量限制；示例均为合成内容。
-本地导入支持先预览、后明确提交，跨批次整文件原子入库，结果按计划ID查询。见 [导入流程与回执](docs/SAMPLE_IMPORTS.md)。当前数据库升级到schema v7；历史章节中的v6表示站点分页迁移阶段。预览仅保留计划元数据，但会在事务内模拟写入后回滚样本。
+本地导入支持先预览、后明确提交，跨批次整文件原子入库，结果按计划ID查询。见 [导入流程与回执](docs/SAMPLE_IMPORTS.md)。该功能引入schema v7，当前为v8；历史章节中的v6表示站点分页迁移阶段。预览仅保留计划元数据，但会在事务内模拟写入后回滚样本。
 导入计划支持分页查询、过期预览的确认清理及文件质量快照，见 [导入历史与质量口径](docs/IMPORT_HISTORY.md)。当前schema v8；已完成回执保留用于幂等重试，清理不删除业务样本。
 管理员可查询 `/api/v1/sites/{id}/quality`，按时间、来源、平台和入口查看缺引用、缺证据及未知模型指标；支持显式合成样本筛选，详见 [样本质量报告](docs/SAMPLE_QUALITY.md)。schema保持v8。
+
+`python -m geo.bundle --db data/geo.sqlite3 --site <site-id> --start 2026-10-30T00:00:00Z --end 2026-10-31T00:00:00Z --output data/report.zip` 导出同一数据库快照的基础报告、质量报告和参数/摘要清单，不包含原始回答，拒绝覆盖已有文件。使用实际数据库路径和站点ID，详见 [本地报告包](docs/REPORT_BUNDLES.md)。

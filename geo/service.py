@@ -140,7 +140,8 @@ class Service:
     def inventory(self, site_id, inventory_id=None):
         self.site(site_id)
         with self.db.connect() as conn:
-            conn.execute('BEGIN')
+            if not conn.in_transaction:
+                conn.execute('BEGIN')
             if inventory_id is None:
                 metadata = conn.execute('SELECT id,length(CAST(urls AS BLOB)) AS bytes FROM inventories WHERE site_id=? ORDER BY sequence DESC LIMIT 1', (site_id,)).fetchone()
             else:

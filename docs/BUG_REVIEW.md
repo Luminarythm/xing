@@ -76,3 +76,9 @@ test_import_history.py在冻结时间为计划expires时，修复前仍可提交
 # 第十二轮：未知模型大小写漏计
 
 test_quality.py使用model=" UNKNOWN "生成预览，修复前unknown_model=0而预期1。原因是原摘要与离线警告只精确比较小写unknown。现共享去空格/casefold判断，不改写原字段或旧快照；新报告对缺失模型也计为未知。8项新增测试涵盖旧字段分母、合成标签、时间窗、导入快照/重放/删除及HTTP范围校验。
+
+# 第十三轮：共享快照的清单事务兼容及导出边界
+
+新增导出调用路径下，`python -m unittest tests.test_bundle.BundleTest.test_shared_transaction_inventory_and_manifest -v` 修复前报 `cannot start a transaction within a transaction`。原因是inventory无条件BEGIN，与包级一致读事务冲突。现在仅在连接尚未开启事务时BEGIN；既有单独清单查询保持一致读，导出复用外层事务。这是新增共享连接场景触发的兼容问题，不声称原独立HTTP报告必然失败。
+
+9项新增测试覆盖WAL并发导入/配置/清单/复核变化、内容与清单摘要、显式窗口和快照选择、源库未修改、文件竞争不覆盖、压缩/发布/中断异常清理、缺库不创建及旧schema不迁移、查询/整包预算、锁等待与截止、实际CLI调用。首次测试清理失败来自测试自身误用sqlite连接上下文（只结束事务，不关闭连接），已改为closing，未将其归为业务缺陷。全套150项本地测试通过。强制杀进程/断电遗留临时文件仍是明确边界，见REPORT_BUNDLES.md。

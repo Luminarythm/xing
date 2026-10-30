@@ -97,3 +97,7 @@ schema v8新增import_positions，save写计划时确保序号存在，旧计划
 # 站点质量报告增量（2026-10-30）
 
 geo/quality.py复用reporting的筛选谓词，仅投影质量元数据并受条数/字节预算约束；不依赖品牌投影或清单。API增加管理员quality GET。is_unknown_model由离线校验、导入摘要和站点质量报告共享，保持现有模型字段原样与schema v8。分母、合成标记与历史摘要区别见 SAMPLE_QUALITY.md。
+
+# 本地报告包增量（2026-10-30）
+
+geo/bundle.py负责固定窗口参数、只读快照生命周期、双报告组装、摘要清单和不覆盖式文件发布。内部数据库适配器把Service和quality的嵌套读取绑定到同一连接，借用者不提交/关闭；inventory仅在未处于事务时BEGIN。主库只读，品牌选择临时表仍可写；不复制整个数据库，不更改schema v8。查询预算延续既有limits，并额外限制包内未压缩总字节。CLI依赖本地文件权限，不新增HTTP文件路径接口。边界及文件系统限制见 REPORT_BUNDLES.md。
