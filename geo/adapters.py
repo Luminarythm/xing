@@ -32,6 +32,9 @@ class NginxJsonAdapter:
 
 class ManualAnswerAdapter:
     def normalize(self, r):
+        evidence = r.get('evidence_url')
+        if evidence is not None and not isinstance(evidence, str):
+            raise ValueError('evidence_url must be a URL string or null')
         citations = r.get('citations', [])
         if not isinstance(citations, list) or len(citations) > 100:
             raise ValueError('citations must be a list of up to 100 URLs')
@@ -45,7 +48,7 @@ class ManualAnswerAdapter:
             prompt=text(r.get('prompt'), 'prompt', 5000),
             answer=text(r.get('answer'), 'answer', 50000),
             citations=sorted(set(url(u) for u in citations)),
-            evidence_url=url(r['evidence_url']) if r.get('evidence_url') else None,
+            evidence_url=url(evidence) if evidence else None,
             locale=text(r.get('locale', 'zh-CN'), 'locale', 50))
 
 

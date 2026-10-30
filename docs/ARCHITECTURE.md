@@ -85,3 +85,6 @@ sites 保存站点 origin、品牌及竞品名称/别名；events 保存 site_id
 # 站点索引与数据库预算增量（2026-10-29）
 
 schema v6增加site_positions，旧站点按rowid回填，注册与序号写入同事务；site_page复用签名游标且绑定独立资源范围。清单读取在一致读事务先查存储字节再读正文，导入先校验存储/响应预算。Database普通连接新增忙锁等待与progress handler截止，异常先禁用截止回调再整笔回滚。API仅依据SQLite错误码公开busy/timeout契约；其余错误不泄漏细节。备份/状态同步识别v6，demo更新为逐页查站。详见 SITES_AND_DATABASE.md。
+# 离线人工样本增量（2026-10-30）
+
+geo/samples.py只依赖JSON解析、contracts与ManualAnswerAdapter，不依赖Database/Service/HTTP；按物理行流式读取并设置文件/行/条数限制。模板明确source与record，严格要求入口等字段，拒绝未知字段和重复JSON键。诊断只输出行号与固定代码，不输出归一化正文。平台矩阵仅说明本项目记录契约，实际供应商能力保持未验证。schema仍v6，详情见 MANUAL_SAMPLES.md。

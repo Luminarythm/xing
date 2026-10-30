@@ -83,3 +83,6 @@ Linux/macOS：`export GEO_API_TOKEN="$(python -c 'import secrets; print(secrets.
 [审计分页、删除预算与并发验收](docs/AUDIT_AND_RETENTION.md)：复核历史GET由数组改为分页对象；删除选择合计事件、任务与复核记录，超限不保存残缺计划。运行中缺失数据库不会被普通连接意外重建。`python scripts/local_load.py` 可重复运行临时合成数据并发基线。
 
 [站点分页、清单预算与数据库超时](docs/SITES_AND_DATABASE.md)：站点GET由数组改为分页对象，demo已适配。清单读取先检查存储字节；忙锁503可延迟重试，查询超时503应先缩小查询范围。`python scripts/http_load.py` 提供本地HTTP并发基线。
+# 人工样本准备
+
+`python -m geo.samples examples/manual-samples.jsonl` 可离线校验人工回答JSONL，输出逐行错误、警告及汇总，不联网、不写库。[样本格式与证据矩阵](docs/MANUAL_SAMPLES.md)说明填写要求与容量限制；示例均为合成内容。

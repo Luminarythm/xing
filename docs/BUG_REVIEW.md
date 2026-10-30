@@ -61,3 +61,6 @@ test_brand_reports.py的前两项回归在修复前均失败：Go错误计入Goo
 最小回归命令 `python -m unittest discover -s tests -p test_sites_database.py -v` 修复前两项失败：大清单在query_bytes=1024时仍完整读取；真实SQLite写锁导致HTTP 500而不是可重试503。原因分别是inventory读取路径未接入预算、OperationalError落入通用500分支。修复后在读事务中先检查存储大小，API依据基础SQLite错误码区分忙锁与查询截止。
 
 新增数据库截止时间并验证写入后的查询中断会完整回滚；回滚前禁用progress handler，避免清理再次中断。站点分页通过schema v6递增序号避免删后复用，迁移与备份同步验证。演示脚本适配分页并在第101个站点位置验证连续两次运行不增数。13项新增测试，全套104项通过；独立HTTP并发基线零错误，见 SITES_AND_DATABASE.md。
+# 第九轮：证据链接错误类型被静默忽略
+
+`python -m unittest discover -s tests -p test_samples.py -v` 修复前对false、0、[]、{}四个evidence_url输入均失败：期望拒绝但适配器未报错。原因是使用truthiness决定是否校验URL，非字符串的假值被当成缺省值。现在先检查字符串/null类型，再保留兼容的缺失/空字符串处理；离线校验和HTTP入库共享修复。新增9项测试覆盖模板及批量校验边界。
