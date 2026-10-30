@@ -88,3 +88,6 @@ schema v6增加site_positions，旧站点按rowid回填，注册与序号写入�
 # 离线人工样本增量（2026-10-30）
 
 geo/samples.py只依赖JSON解析、contracts与ManualAnswerAdapter，不依赖Database/Service/HTTP；按物理行流式读取并设置文件/行/条数限制。模板明确source与record，严格要求入口等字段，拒绝未知字段和重复JSON键。诊断只输出行号与固定代码，不输出归一化正文。平台矩阵仅说明本项目记录契约，实际供应商能力保持未验证。schema仍v6，详情见 MANUAL_SAMPLES.md。
+# 本地原子导入增量（2026-10-30）
+
+geo/imports.py复用离线校验与Service.ingest，按来源分组、每批500条。预览通过保存点模拟后回滚，执行重查文件摘要、配置/保留上下文与批次结果；所有样本和完成回执同事务提交。schema v7新增sample_imports，仅存计划和结果元数据。CLI只接受已有本地库，不联网；schema/备份/状态版本同步更新。详细边界见 SAMPLE_IMPORTS.md。

@@ -8,7 +8,7 @@ from .contracts import text, url, timestamp, records
 from .adapters import LOG_ADAPTERS, ANSWER_ADAPTERS, classify
 from .catalog import is_ai_event
 from .coverage import coverage
-from .brands import Brands, classify_mentions, RULE
+from .brands import Brands, classify_mentions, normalize, RULE
 from .reporting import normalize_filters, query_predicate
 from .limits import Limits, read_rows, json_bytes, CapacityExceeded
 
@@ -30,6 +30,8 @@ class Service:
         if not isinstance(brands, list) or not 1 <= len(brands) <= 50:
             raise ValueError('brands must contain 1..50 names/aliases')
         brands = list(dict.fromkeys(text(b, 'brand', 100) for b in brands))
+        if len({normalize(b) for b in brands}) != len(brands):
+            raise ValueError('duplicate normalized brand names')
         site = dict(id=str(uuid.uuid4()), name=text(body.get('name'), 'name', 200),
                     origin=f'{p.scheme}://{p.netloc}', brands=brands)
         with self.db.connect() as conn:
