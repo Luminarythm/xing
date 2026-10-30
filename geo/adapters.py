@@ -1,5 +1,7 @@
 """Replaceable, side-effect-free adapters. No database or HTTP dependencies."""
 from typing import Protocol
+import re
+from .catalog import CATALOG, VERSION
 from .contracts import text, timestamp, url
 
 
@@ -12,9 +14,12 @@ class JsonLogAdapter:
         status = r.get('status')
         if type(status) is not int or not 100 <= status <= 599:
             raise ValueError('status must be an integer between 100 and 599')
+        ua = r.get('user_agent', '')
+        if not isinstance(ua, str) or len(ua) > 1000:
+            raise ValueError('user_agent must be a string <=1000 characters')
         return dict(event_id=text(r.get('event_id'), 'event_id', 200),
                     observed_at=timestamp(r.get('observed_at')), url=url(r.get('url')),
-                    status=status, user_agent=text(r.get('user_agent'), 'user_agent', 1000))
+                    status=status, user_agent=ua.strip())
 
 
 class NginxJsonAdapter:
@@ -22,11 +27,14 @@ class NginxJsonAdapter:
     def normalize(self, r):
         return JsonLogAdapter().normalize(dict(event_id=r.get('request_id'),
             observed_at=r.get('time_iso8601'), url=r.get('url'),
-            status=r.get('status'), user_agent=r.get('http_user_agent')))
+            status=r.get('status'), user_agent=r.get('http_user_agent', '')))
 
 
 class ManualAnswerAdapter:
     def normalize(self, r):
+        evidence = r.get('evidence_url')
+        if evidence is not None and not isinstance(evidence, str):
+            raise ValueError('evidence_url must be a URL string or null')
         citations = r.get('citations', [])
         if not isinstance(citations, list) or len(citations) > 100:
             raise ValueError('citations must be a list of up to 100 URLs')
@@ -40,7 +48,7 @@ class ManualAnswerAdapter:
             prompt=text(r.get('prompt'), 'prompt', 5000),
             answer=text(r.get('answer'), 'answer', 50000),
             citations=sorted(set(url(u) for u in citations)),
-            evidence_url=url(r['evidence_url']) if r.get('evidence_url') else None,
+            evidence_url=url(evidence) if evidence else None,
             locale=text(r.get('locale', 'zh-CN'), 'locale', 50))
 
 
@@ -49,8 +57,13 @@ ANSWER_ADAPTERS = {'manual-v1': ManualAnswerAdapter()}
 
 
 def classify(ua):
-    # A declaration is not verified identity. Keep this catalog small and versioned.
-    for token in ('GPTBot', 'OAI-SearchBot', 'ChatGPT-User', 'ClaudeBot', 'PerplexityBot'):
-        if token.casefold() in ua.casefold():
-            return {'declared_bot': token, 'verification': 'unverified', 'rule_version': '1'}
-    return {'declared_bot': None, 'verification': 'unknown', 'rule_version': '1'}
+    matches = [entry for entry in CATALOG if entry['enabled'] and
+               re.search(r'(?<![\w-])' + re.escape(entry['token']) + r'(?![\w-])', ua, re.I)]
+    entry = matches[0] if len(matches) == 1 else None
+    return dict(declared_bot=entry['token'] if entry else None,
+                verification='unverified' if entry else 'unknown', rule_version=VERSION,
+                crawler_category=entry['category'] if entry else 'unknown',
+                crawler_provider=entry['provider'] if entry else None,
+                crawler_evidence=entry['evidence_level'] if entry else None,
+                crawler_source=entry['source_url'] if entry else None,
+                ambiguous_tokens=[e['token'] for e in matches] if len(matches) > 1 else [])

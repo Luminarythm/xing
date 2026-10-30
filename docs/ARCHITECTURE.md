@@ -1,6 +1,6 @@
 # 架构决策 ADR-001：先建立证据闭环
 
-状态：已实现本地 MVP；日期：2026-10-29。目标是验证中国大陆 AI 产品的抓取与回答曝光证据，不输出无法解释的 GEO 综合分。
+状态：已实现本地 MVP 及 P01/P02 本地接入能力；日期：2026-10-29。目标是验证中国大陆 AI 产品的抓取与回答曝光证据，不输出无法解释的 GEO 综合分。最新验证和采集契约见 [INGESTION.md](INGESTION.md)。
 
 ## 模块边界
 
@@ -21,7 +21,14 @@ flowchart LR
 | 站点/采集用例 | geo/service.py | 站点范围、批次事务、幂等、品牌匹配、报告 | 上游 API 调用 |
 | 标准契约 | geo/contracts.py | URL、时间、类型与长度校验 | 数据库 |
 | 适配器 | geo/adapters.py | 外部字段映射到稳定事件、UA 声明分类 | SQL、直接写报告 |
-| 存储 | geo/db.py | 连接事务、外键、schema version 1 | 采集逻辑 |
+| 存储 | geo/db.py | 连接事务、外键、schema version 5与增量迁移 | 采集逻辑 |
+| 运维 | geo/paging.py、geo/retention.py、geo/backup.py | 签名分页、预览删除、逻辑保留边界、新文件恢复 | TLS、物理擦除、生产灾备 |
+| 模拟采样 | geo/jobs.py | 持久状态、租约、重试和原子完成 | 真实provider、常驻调度 |
+| 品牌与复核 | geo/brands.py | 配置版本、稳定品牌ID、别名歧义、审计投影 | 情感、模型推断、真实审核人身份 |
+| 报告导出 | geo/reporting.py | 统一筛选、CSV编码与单元格处理 | 数据存储、后台任务 |
+| 目录与覆盖 | geo/catalog.py、geo/coverage.py | 来源分级、声明分类、清单页面集合对比 | 实际IP/DNS核验、收录或曝光推断 |
+| 站点安全 | geo/security.py、geo/ownership.py | HTTPS挑战、站点日志密钥、有效期和撤销 | 多租户、爬虫身份核验 |
+| 文件采集 | geo/collector.py | JSONL读取、outbox、位点、重命名轮转 | 平台回答采集、后台调度 |
 | 演示与回归 | scripts/demo.py、tests/ | HTTP 演示、数据与权限测试 | 真实平台表现背书 |
 
 选择 Python 标准库减少首轮安装与网络依赖；SQLite 适合单机低流量验证。以后在 Service 用例边界引入仓储接口迁移 PostgreSQL，不让各采集器直接写数据库。当前报告与采集用例在同一模块，规模扩大后拆 report service；暂不引入微服务、Redis 和异步队列。
@@ -41,7 +48,7 @@ sites 保存站点 origin、品牌及竞品名称/别名；events 保存 site_id
 
 现有 `Adapter.normalize(record)->dict`、LOG_ADAPTERS、ANSWER_ADAPTERS 是显式注册表。json-v1 和 nginx-json-v1 输出一致日志模型，manual-v1 输出回答模型。新平台必须经 Service 校验、事务与去重后落库，禁止绕过服务写事实表。
 
-后续将有副作用的 Collector 独立于纯 Adapter：`collect(cursor,budget)->batch,next_cursor`。Collector 管密钥、超时、分页、退避、限额与检查点；Adapter 管格式；队列管状态 queued/running/succeeded/failed 与重试。仅持久提交成功才推进 cursor，失败保留原始批次标识。首轮未实现后台轮询、文件 tail、CDN 拉取或任何付费 API 调用。
+有副作用的 Collector 已独立于纯 Adapter：文件采集器负责读取、批次、outbox、检查点和单次HTTP发送；Adapter 管格式。仅持久提交确认后推进 cursor，失败保留原始批次等待下一次执行。后续队列负责 queued/running/succeeded/failed、限额与退避；尚未实现后台轮询、CDN 拉取或任何付费 API 调用。
 
 大陆产品接入优先采用运营者合法取得的人工导出/官方服务，候选包括豆包、DeepSeek、Kimi、通义、文心、腾讯元宝；每一项在接入前确认官方接口能力和使用条件。模型 API、联网搜索 API 与消费产品 UI 必须分开标记。无法获得来源列表时 citations 留空，不能把回答中随意出现的网址自动包装为已验证引用。
 
@@ -64,4 +71,33 @@ sites 保存站点 origin、品牌及竞品名称/别名；events 保存 site_id
 
 ## 演进与生产门槛
 
+第四轮新增brand_configs与mention_reviews表，使用不可变配置和追加审计记录；原始回答不变，查询按选定配置重算提及。三种读取形式（报告、明细、CSV）复用同一筛选与投影；详见 [BRANDS_AND_REPORTS.md](BRANDS_AND_REPORTS.md)。
+
+增量：已新增 inventories 不可变快照表（site_id、id、created_at、source、urls），report可固定inventory_id；最新的目录和统计口径以 [COVERAGE_AND_CRAWLERS.md](COVERAGE_AND_CRAWLERS.md) 为准。无清单时仍保留unknown语义，有清单时分别计算观察覆盖与2xx成功覆盖。
+
 阶段1先接一个授权站点，证明真实日志可以稳定流入，人工回答证据可复核。后续再做页面清单、中文品牌消歧、平台分层报告和 worker。公网部署前须完成域名所有权验证、组织/站点授权、站点采集密钥、TLS 网关与限流、分页和保留/删除策略、备份恢复演练。当前全量事件读取不适合大数据集，stdlib HTTP server 不作为公网生产服务器。
+# 本地容量与状态增量（2026-10-29）
+
+`geo/limits.py` 管理单请求条数/UTF-8字节预算；`geo/reporting.py` 统一筛选规范化和SQL谓词；Service的报告/CSV读取与分页复用谓词。品牌投影通过临时选择表与最新复核序号缩小读取范围。`geo/status.py` 使用只读数据库连接输出无正文/密钥/路径的管理员摘要，API负责鉴权和503映射。GET序列化在发送成功响应前检查预算；超限422，不截断统计。schema仍为v5，不引入外部依赖。详细契约与剩余范围见 CAPACITY_AND_STATUS.md。
+# 审计与保留增量（2026-10-29）
+
+共享游标签名迁入geo/cursors.py；geo/paging.py增加审计历史分页，固定配置/复核上限并与事件游标隔离。geo/retention.py在同一事务内限制事件键、任务ID、复核序号的合计条数/字节，且在写计划或删数据前预检完整返回计划。geo/db.py区分初始化创建与运行中仅打开既有库，固定绝对路径。未升级schema。并发基线与兼容性变更见 AUDIT_AND_RETENTION.md。
+# 站点索引与数据库预算增量（2026-10-29）
+
+schema v6增加site_positions，旧站点按rowid回填，注册与序号写入同事务；site_page复用签名游标且绑定独立资源范围。清单读取在一致读事务先查存储字节再读正文，导入先校验存储/响应预算。Database普通连接新增忙锁等待与progress handler截止，异常先禁用截止回调再整笔回滚。API仅依据SQLite错误码公开busy/timeout契约；其余错误不泄漏细节。备份/状态同步识别v6，demo更新为逐页查站。详见 SITES_AND_DATABASE.md。
+# 离线人工样本增量（2026-10-30）
+
+geo/samples.py只依赖JSON解析、contracts与ManualAnswerAdapter，不依赖Database/Service/HTTP；按物理行流式读取并设置文件/行/条数限制。模板明确source与record，严格要求入口等字段，拒绝未知字段和重复JSON键。诊断只输出行号与固定代码，不输出归一化正文。平台矩阵仅说明本项目记录契约，实际供应商能力保持未验证。schema仍v6，详情见 MANUAL_SAMPLES.md。
+# 本地原子导入增量（2026-10-30）
+
+geo/imports.py复用离线校验与Service.ingest，按来源分组、每批500条。预览通过保存点模拟后回滚，执行重查文件摘要、配置/保留上下文与批次结果；所有样本和完成回执同事务提交。schema v7新增sample_imports，仅存计划和结果元数据。CLI只接受已有本地库，不联网；schema/备份/状态版本同步更新。详细边界见 SAMPLE_IMPORTS.md。
+# 导入历史生命周期增量（2026-10-30）
+
+schema v8新增import_positions，save写计划时确保序号存在，旧计划迁移回填。geo/import_history.py以签名游标提供局部元数据查询与精确过期集合清理；清理只选择未提交预览，完成回执不动。列表固定序号上限但不固定状态版本。quality在导入预览计算，是含重复记录的文件快照，旧数据为null。契约见 IMPORT_HISTORY.md。
+# 站点质量报告增量（2026-10-30）
+
+geo/quality.py复用reporting的筛选谓词，仅投影质量元数据并受条数/字节预算约束；不依赖品牌投影或清单。API增加管理员quality GET。is_unknown_model由离线校验、导入摘要和站点质量报告共享，保持现有模型字段原样与schema v8。分母、合成标记与历史摘要区别见 SAMPLE_QUALITY.md。
+
+# 本地报告包增量（2026-10-30）
+
+geo/bundle.py负责固定窗口参数、只读快照生命周期、双报告组装、摘要清单和不覆盖式文件发布。内部数据库适配器把Service和quality的嵌套读取绑定到同一连接，借用者不提交/关闭；inventory仅在未处于事务时BEGIN。主库只读，品牌选择临时表仍可写；不复制整个数据库，不更改schema v8。查询预算延续既有limits，并额外限制包内未压缩总字节。CLI依赖本地文件权限，不新增HTTP文件路径接口。边界及文件系统限制见 REPORT_BUNDLES.md。
