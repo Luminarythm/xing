@@ -4,7 +4,7 @@ import time
 from pathlib import Path
 from contextlib import contextmanager
 
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 
 SCHEMA = '''
 CREATE TABLE IF NOT EXISTS sites (
@@ -96,6 +96,15 @@ class Database:
                 CREATE TABLE IF NOT EXISTS sample_imports (
                   id TEXT PRIMARY KEY, site_id TEXT NOT NULL REFERENCES sites(id), payload TEXT NOT NULL);
                 PRAGMA user_version=7;
+                COMMIT;''')
+
+            if version < 8:
+                conn.executescript('''BEGIN IMMEDIATE;
+                CREATE TABLE IF NOT EXISTS import_positions (
+                  sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+                  import_id TEXT NOT NULL UNIQUE REFERENCES sample_imports(id) ON DELETE CASCADE);
+                INSERT OR IGNORE INTO import_positions(import_id) SELECT id FROM sample_imports ORDER BY rowid;
+                PRAGMA user_version=8;
                 COMMIT;''')
 
     @classmethod

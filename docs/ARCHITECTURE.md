@@ -91,3 +91,6 @@ geo/samples.py只依赖JSON解析、contracts与ManualAnswerAdapter，不依赖D
 # 本地原子导入增量（2026-10-30）
 
 geo/imports.py复用离线校验与Service.ingest，按来源分组、每批500条。预览通过保存点模拟后回滚，执行重查文件摘要、配置/保留上下文与批次结果；所有样本和完成回执同事务提交。schema v7新增sample_imports，仅存计划和结果元数据。CLI只接受已有本地库，不联网；schema/备份/状态版本同步更新。详细边界见 SAMPLE_IMPORTS.md。
+# 导入历史生命周期增量（2026-10-30）
+
+schema v8新增import_positions，save写计划时确保序号存在，旧计划迁移回填。geo/import_history.py以签名游标提供局部元数据查询与精确过期集合清理；清理只选择未提交预览，完成回执不动。列表固定序号上限但不固定状态版本。quality在导入预览计算，是含重复记录的文件快照，旧数据为null。契约见 IMPORT_HISTORY.md。

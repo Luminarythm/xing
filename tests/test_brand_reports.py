@@ -148,7 +148,7 @@ class BrandReportTest(unittest.TestCase):
         self.assertEqual(upgraded.brands.configuration(self.site)['id'], 'legacy')
         self.assertEqual(upgraded.report(self.site)['brand_mentions'], {'Go': 1})
         with upgraded.db.connect() as conn:
-            self.assertEqual(conn.execute('PRAGMA user_version').fetchone()[0], 7)
+            self.assertEqual(conn.execute('PRAGMA user_version').fetchone()[0], 8)
 
     def test_http_export_and_brand_review_routes(self):
         self.answers([dict(event_id='1', answer='Go', prompt='=1+1')])

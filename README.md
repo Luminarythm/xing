@@ -64,7 +64,7 @@ Linux/macOS：`export GEO_API_TOKEN="$(python -c 'import secrets; print(secrets.
 
 ## 范围与下一步
 
-默认仅监听 127.0.0.1；这是本地验证服务，未完成公网生产加固、多租户、常驻调度和真实平台调用。站点、事件及审计历史已支持分页，报告/导出在容量范围内读取完整匹配集合，超限拒绝。GEO_API_TOKEN 为实例管理权限；采集器使用单站点 GEO_INGEST_TOKEN。登记站点并不证明域名所有权，须另完成 HTTPS 挑战。回答正文可能含敏感信息，导入前脱敏；data/ 目录不得提交公开仓库。旧数据库自动升级到 schema v7，升级前建议备份。
+默认仅监听 127.0.0.1；这是本地验证服务，未完成公网生产加固、多租户、常驻调度和真实平台调用。站点、事件及审计历史已支持分页，报告/导出在容量范围内读取完整匹配集合，超限拒绝。GEO_API_TOKEN 为实例管理权限；采集器使用单站点 GEO_INGEST_TOKEN。登记站点并不证明域名所有权，须另完成 HTTPS 挑战。回答正文可能含敏感信息，导入前脱敏；data/ 目录不得提交公开仓库。旧数据库自动升级到 schema v8，升级前建议备份。
 
 爬虫 UA 声明不是已验证身份，抓取不等于收录/引用。没有页面清单时覆盖率为 null；没有回答样本时引用率为 null。品牌匹配为字面匹配，不判断情感、语义或推荐位次。
 
@@ -76,7 +76,7 @@ Linux/macOS：`export GEO_API_TOKEN="$(python -c 'import secrets; print(secrets.
 
 [品牌、人工复核与筛选导出](docs/BRANDS_AND_REPORTS.md)：支持platform、surface、model、source和kind筛选，以及brand_config_id固定匹配定义。
 
-[分页、保留删除、备份恢复与模拟任务](docs/OPERATIONS.md)：当前schema v7；events默认100条，最多500条，需按next_cursor翻页。
+[分页、保留删除、备份恢复与模拟任务](docs/OPERATIONS.md)：当前schema v8；events默认100条，最多500条，需按next_cursor翻页。
 
 [容量控制与运行状态](docs/CAPACITY_AND_STATUS.md)：报告/CSV默认最多10,000条匹配事件，原始事件读取和GET响应分别最多16 MiB；超限返回422且不截断。按日志筛选时回答指标为null，按回答筛选时爬虫指标为null。
 
@@ -87,3 +87,4 @@ Linux/macOS：`export GEO_API_TOKEN="$(python -c 'import secrets; print(secrets.
 
 `python -m geo.samples examples/manual-samples.jsonl` 可离线校验人工回答JSONL，输出逐行错误、警告及汇总，不联网、不写库。[样本格式与证据矩阵](docs/MANUAL_SAMPLES.md)说明填写要求与容量限制；示例均为合成内容。
 本地导入支持先预览、后明确提交，跨批次整文件原子入库，结果按计划ID查询。见 [导入流程与回执](docs/SAMPLE_IMPORTS.md)。当前数据库升级到schema v7；历史章节中的v6表示站点分页迁移阶段。预览仅保留计划元数据，但会在事务内模拟写入后回滚样本。
+导入计划支持分页查询、过期预览的确认清理及文件质量快照，见 [导入历史与质量口径](docs/IMPORT_HISTORY.md)。当前schema v8；已完成回执保留用于幂等重试，清理不删除业务样本。

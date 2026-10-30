@@ -14,10 +14,10 @@ def runtime_status(service):
         conn.set_progress_handler(lambda: int(time.monotonic() > deadline), 1000)
         conn.execute('BEGIN')
         version = conn.execute('PRAGMA user_version').fetchone()[0]
-        if version != 7:
+        if version != 8:
             raise sqlite3.DatabaseError('unsupported schema')
         required = {'sites', 'events', 'inventories', 'brand_configs', 'mention_reviews', 'site_security',
-                    'ingest_keys', 'event_positions', 'retention_plans', 'retention_watermarks', 'sample_jobs', 'site_positions', 'sample_imports'}
+                    'ingest_keys', 'event_positions', 'retention_plans', 'retention_watermarks', 'sample_jobs', 'site_positions', 'sample_imports', 'import_positions'}
         tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         if not required <= tables:
             raise sqlite3.DatabaseError('missing required tables')

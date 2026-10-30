@@ -133,7 +133,7 @@ class SitesDatabaseTest(unittest.TestCase):
         upgraded = Service(Database(backup))
         self.assertEqual([s['name'] for s in site_page(upgraded, self.secret)['items']], ['first', 'second'])
         with upgraded.db.connect() as conn:
-            self.assertEqual(conn.execute('PRAGMA user_version').fetchone()[0], 7)
+            self.assertEqual(conn.execute('PRAGMA user_version').fetchone()[0], 8)
         restored = Path(self.tmp.name) / 'v6-restored.sqlite3'
         copy_database(backup, restored)
         self.assertEqual(site_page(Service(Database(restored)), self.secret)['items'], site_page(upgraded, self.secret)['items'])

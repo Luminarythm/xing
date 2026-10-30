@@ -19,7 +19,7 @@ def copy_database(source, destination):
             if original.execute('PRAGMA integrity_check').fetchone()[0] != 'ok':
                 raise ValueError('source integrity check failed')
             version = original.execute('PRAGMA user_version').fetchone()[0]
-            if version not in (1, 2, 3, 4, 5, 6, 7):
+            if version not in (1, 2, 3, 4, 5, 6, 7, 8):
                 raise ValueError('unsupported backup schema')
             tables = {r[0] for r in original.execute("SELECT name FROM sqlite_master WHERE type='table'")}
             required = {'sites', 'events'}
@@ -35,6 +35,8 @@ def copy_database(source, destination):
                 required.add('site_positions')
             if version >= 7:
                 required.add('sample_imports')
+            if version >= 8:
+                required.add('import_positions')
             if not required <= tables:
                 raise ValueError('backup is missing required Xing tables')
             with closing(sqlite3.connect(destination)) as target:

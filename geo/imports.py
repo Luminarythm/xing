@@ -58,6 +58,7 @@ class Imports:
         payload = json_bytes(plan, min(self.service.limits.query_bytes, self.service.limits.response_bytes)).decode()
         conn.execute('INSERT INTO sample_imports VALUES(?,?,?) ON CONFLICT(id) DO UPDATE SET payload=excluded.payload',
                      (plan['id'], plan['site_id'], payload))
+        conn.execute('INSERT OR IGNORE INTO import_positions(import_id) VALUES(?)', (plan['id'],))
 
     def read(self, conn, site_id, plan_id):
         row = conn.execute('SELECT length(CAST(payload AS BLOB)) FROM sample_imports WHERE site_id=? AND id=?', (site_id, plan_id)).fetchone()
@@ -81,6 +82,13 @@ class Imports:
             plan = dict(id=str(uuid.uuid4()), site_id=site_id, sha256=digest, rows=count, batches=results,
                         context=context, state='preview', executable=all(r['status'] == 'ready' for r in results),
                         expires=time.time()+900, attempts=0)
+            records = [record for batch in batches for record in batch['records']]
+            plan['quality'] = dict(scope='input_file_including_duplicates', samples=len(records),
+                without_citations=sum(not r['citations'] for r in records),
+                without_evidence_url=sum(not r.get('evidence_url') for r in records),
+                unknown_model=sum(r['model'].strip() == 'unknown' for r in records),
+                by_surface={surface: sum(r['surface'] == surface for r in records)
+                            for surface in ('manual', 'consumer_ui', 'model_api')})
             self.save(conn, plan)
         return plan
 
@@ -96,7 +104,7 @@ class Imports:
                 raise Conflict('input file changed; preview again')
             if plan['state'] == 'committed':
                 return plan
-            if not plan['executable'] or plan['expires'] < time.time():
+            if not plan['executable'] or plan['expires'] <= time.time():
                 raise ValueError('preview blocked or expired; preview again')
             if count > self.service.limits.query_events:
                 raise CapacityExceeded('import row capacity exceeded')
