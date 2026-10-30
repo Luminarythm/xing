@@ -4,6 +4,7 @@ import json
 import sys
 from .adapters import ManualAnswerAdapter
 from .contracts import text
+from .quality import is_unknown_model
 
 REQUIRED = {'event_id', 'observed_at', 'platform', 'model', 'surface', 'locale', 'prompt', 'answer', 'citations'}
 ALLOWED = REQUIRED | {'evidence_url'}
@@ -72,7 +73,7 @@ def validate(stream, max_bytes=MAX_BYTES, max_line=MAX_LINE, max_rows=MAX_ROWS):
                             seen.add(identity)
                         if not normalized['evidence_url']:
                             warnings.append('missing_evidence_url')
-                        if normalized['model'] == 'unknown':
+                        if is_unknown_model(normalized['model']):
                             warnings.append('unknown_model')
                         if any('?' in u or '#' in u for u in [*record['citations'], record.get('evidence_url') or '']):
                             warnings.append('url_query_or_fragment_removed_on_ingest')

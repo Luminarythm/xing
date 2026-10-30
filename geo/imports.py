@@ -12,6 +12,7 @@ from .samples import validate, MAX_BYTES
 from .limits import CapacityExceeded, json_bytes, Limits
 from .service import Service, Conflict
 from .db import Database
+from .quality import is_unknown_model
 
 
 def load_samples(path):
@@ -86,7 +87,7 @@ class Imports:
             plan['quality'] = dict(scope='input_file_including_duplicates', samples=len(records),
                 without_citations=sum(not r['citations'] for r in records),
                 without_evidence_url=sum(not r.get('evidence_url') for r in records),
-                unknown_model=sum(r['model'].strip() == 'unknown' for r in records),
+                unknown_model=sum(is_unknown_model(r['model']) for r in records),
                 by_surface={surface: sum(r['surface'] == surface for r in records)
                             for surface in ('manual', 'consumer_ui', 'model_api')})
             self.save(conn, plan)

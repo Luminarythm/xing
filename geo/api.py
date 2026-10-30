@@ -13,6 +13,7 @@ from .retention import Retention
 from .jobs import Jobs
 from .limits import CapacityExceeded, json_bytes
 from .status import runtime_status
+from .quality import report as quality_report
 
 
 def server(service, token, host='127.0.0.1', port=8000, security=None):
@@ -116,6 +117,7 @@ def server(service, token, host='127.0.0.1', port=8000, security=None):
                     return self.send(200, service.ingest(site_id, action, body))
                 query = parse_qs(p.query, keep_blank_values=True)
                 allowed = {'report': {'start', 'end', 'inventory_id', 'brand_config_id', *FILTERS},
+                           'quality': {'start', 'end', 'dataset', *FILTERS},
                            'events': {'start', 'end', 'brand_config_id', 'limit', 'cursor', *FILTERS},
                            'export.csv': {'start', 'end', 'brand_config_id', *FILTERS},
                            'inventory': {'inventory_id'}, 'brands': {'brand_config_id'},
@@ -126,6 +128,9 @@ def server(service, token, host='127.0.0.1', port=8000, security=None):
                 inventory_id = query.get('inventory_id', [None])[0]
                 config_id = query.get('brand_config_id', [None])[0]
                 filters = {k: query[k][0] for k in FILTERS if k in query}
+                if self.command == 'GET' and action == 'quality':
+                    return self.send(200, quality_report(service, site_id, start, end, filters,
+                        dataset=query.get('dataset', ['all'])[0]))
                 if self.command == 'GET' and action == 'sample-jobs':
                     return self.send(200, jobs.list(site_id))
                 if self.command == 'GET' and action == 'brands':

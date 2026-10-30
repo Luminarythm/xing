@@ -94,3 +94,6 @@ geo/imports.py复用离线校验与Service.ingest，按来源分组、每批500�
 # 导入历史生命周期增量（2026-10-30）
 
 schema v8新增import_positions，save写计划时确保序号存在，旧计划迁移回填。geo/import_history.py以签名游标提供局部元数据查询与精确过期集合清理；清理只选择未提交预览，完成回执不动。列表固定序号上限但不固定状态版本。quality在导入预览计算，是含重复记录的文件快照，旧数据为null。契约见 IMPORT_HISTORY.md。
+# 站点质量报告增量（2026-10-30）
+
+geo/quality.py复用reporting的筛选谓词，仅投影质量元数据并受条数/字节预算约束；不依赖品牌投影或清单。API增加管理员quality GET。is_unknown_model由离线校验、导入摘要和站点质量报告共享，保持现有模型字段原样与schema v8。分母、合成标记与历史摘要区别见 SAMPLE_QUALITY.md。
