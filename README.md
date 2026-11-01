@@ -91,3 +91,5 @@ Linux/macOS：`export GEO_API_TOKEN="$(python -c 'import secrets; print(secrets.
 管理员可查询 `/api/v1/sites/{id}/quality`，按时间、来源、平台和入口查看缺引用、缺证据及未知模型指标；支持显式合成样本筛选，详见 [样本质量报告](docs/SAMPLE_QUALITY.md)。schema保持v8。
 
 `python -m geo.bundle --db data/geo.sqlite3 --site <site-id> --start 2026-10-30T00:00:00Z --end 2026-10-31T00:00:00Z --output data/report.zip` 导出同一数据库快照的基础报告、质量报告和参数/摘要清单，不包含原始回答，拒绝覆盖已有文件。使用实际数据库路径和站点ID，详见 [本地报告包](docs/REPORT_BUNDLES.md)。
+
+`python -m geo.bundle_check data/report.zip --summary` 离线校验报告包并输出中文文本摘要；去掉 `--summary` 输出机器可读校验结果。不会解压文件或连接数据库。`python scripts/bundle_load.py` 运行固定 1,000 条合成样本的导出/校验基线。

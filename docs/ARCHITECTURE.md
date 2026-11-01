@@ -101,3 +101,5 @@ geo/quality.py复用reporting的筛选谓词，仅投影质量元数据并受条
 # 本地报告包增量（2026-10-30）
 
 geo/bundle.py负责固定窗口参数、只读快照生命周期、双报告组装、摘要清单和不覆盖式文件发布。内部数据库适配器把Service和quality的嵌套读取绑定到同一连接，借用者不提交/关闭；inventory仅在未处于事务时BEGIN。主库只读，品牌选择临时表仍可写；不复制整个数据库，不更改schema v8。查询预算延续既有limits，并额外限制包内未压缩总字节。CLI依赖本地文件权限，不新增HTTP文件路径接口。边界及文件系统限制见 REPORT_BUNDLES.md。
+
+geo/bundle_check.py是独立离线消费者：先限制ZIP输入和成员，再校验摘要、解析JSON及交叉统计，最后生成纯文本摘要。不会读取原始数据库，也不执行或渲染包内文本。scripts/bundle_load.py使用临时合成数据库测量导出和校验；schema仍v8，不新增依赖。
