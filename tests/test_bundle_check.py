@@ -12,7 +12,7 @@ import warnings
 import zipfile
 
 from geo.bundle import export_bundle
-from geo.bundle_check import verify, summary
+from geo.bundle_check import verify, summary, bounded_read
 from geo.db import Database
 from geo.service import Service
 
@@ -24,6 +24,7 @@ class BundleCheckTest(unittest.TestCase):
         self.root = Path(self.tmp.name)
         service = Service(Database(self.root / 'db.sqlite3'))
         sid = service.create_site(dict(name='demo\x1b[31m', url='https://demo.example', brands=['Go']))['id']
+        self.service, self.sid = service, sid
         service.ingest(sid, 'answers', dict(adapter='manual-v1', source='fixture', records=[dict(
             event_id='one', observed_at='2026-10-30T12:00:00Z', platform='synthetic', surface='manual',
             prompt='private', answer='Go', citations=[], model='unknown')]))
@@ -60,6 +61,82 @@ class BundleCheckTest(unittest.TestCase):
         self.assertIn('未分类不等于真实样本', text)
         self.assertNotIn('\x1b', text)
         self.assertNotIn('private', text)
+
+    def test_brand_and_coverage_contradictions_rejected(self):
+        for change in (lambda r: r['brand_mentions'].update(Go=2),
+                       lambda r: r['brand_mentions'].update(unknown=0),
+                       lambda r: r.update(mentioned_samples=0),
+                       lambda r: r.update(coverage_rate=0.9),
+                       lambda r: r['coverage'].update(pages=[{'url': 'https://demo.example/'}]),
+                       lambda r: r.update(log_scope='excluded_by_answer_filter')):
+            self.mutate('report.json', change)
+            with self.assertRaises(ValueError):
+                verify(self.path)
+
+    def test_numeric_overflow_in_unused_json_field_rejected(self):
+        files = dict(self.files)
+        files['manifest.json'] = files['manifest.json'][:-1] + b', "extra": 1e999}'
+        self.write(files)
+        with self.assertRaises(ValueError):
+            verify(self.path)
+
+    def coverage_fixture(self, urls, filters=None):
+        self.service.import_inventory(self.sid, dict(source='fixture', urls=urls))
+        self.path.unlink()
+        export_bundle(self.service.db.path, self.path, self.sid, '2026-10-30T00:00:00Z',
+                      '2026-10-31T00:00:00Z', filters=filters)
+        with zipfile.ZipFile(self.path) as archive:
+            self.files = {name: archive.read(name) for name in archive.namelist()}
+        return verify(self.path)
+
+    def test_empty_and_excluded_inventory_are_valid(self):
+        checked = self.coverage_fixture([])
+        self.assertIsNone(checked['report']['coverage_rate'])
+        checked = self.coverage_fixture(['https://demo.example/page'], {'kind': 'answers'})
+        self.assertIsNone(checked['report']['declared_ai_requests'])
+
+    def test_page_counts_and_coverage_tampering(self):
+        self.service.ingest(self.sid, 'logs', dict(source='fixture', adapter='json-v1', records=[
+            dict(event_id=str(i), observed_at='2026-10-30T12:00:00Z', url='https://demo.example/' + path,
+                 status=status, user_agent='GPTBot') for i, (path, status) in enumerate(
+                 [('ok', 200), ('ok', 100), ('bad', 404), ('outside', 301)])]))
+        checked = self.coverage_fixture(['https://demo.example/ok', 'https://demo.example/bad', 'https://demo.example/none'])
+        self.assertEqual(checked['report']['coverage_rate'], 2/3)
+        for change in (lambda r: r['coverage'].update(observed_pages=0),
+                       lambda r: r['coverage']['pages'][0].update(successful_requests=10),
+                       lambda r: r['coverage']['pages'][0].update(observed=1),
+                       lambda r: r['coverage'].update(outside_inventory_urls=[]),
+                       lambda r: r['coverage']['pages'].append(r['coverage']['pages'][0]),
+                       lambda r: r.update(declared_ai_requests=0)):
+            self.mutate('report.json', change)
+            with self.assertRaises(ValueError):
+                verify(self.path)
+
+    def test_multiple_brands_can_share_one_mentioned_sample(self):
+        self.service.brands.configure(self.sid, dict(brands=[dict(name='Go'), dict(name='Second', aliases=['Go'])]))
+        config = self.service.brands.configuration(self.sid)
+        for brand in config['brands']:
+            self.service.brands.review(self.sid, dict(config_id=config['id'], brand_id=brand['id'],
+                source='fixture', event_id='one', included=True, reason='synthetic test'))
+        checked = self.coverage_fixture([])
+        self.assertEqual(sum(checked['report']['brand_mentions'].values()), 2)
+        self.assertEqual(checked['report']['mentioned_samples'], 1)
+
+    def test_chunk_reader_exact_limit_and_short_reads(self):
+        class ShortReader(io.BytesIO):
+            def read(self, size):
+                self.assert_size = size
+                return super().read(min(size, 3))
+        stream = ShortReader(b'1234567')
+        self.assertEqual(bounded_read(stream, 7), b'1234567')
+        with self.assertRaises(ValueError):
+            bounded_read(ShortReader(b'12345678'), 7)
+        class LimitedRequest(io.BytesIO):
+            def read(self, size):
+                if size > 65536:
+                    raise AssertionError('oversized buffer request')
+                return super().read(size)
+        self.assertEqual(bounded_read(LimitedRequest(b'tiny'), 16*1024*1024), b'tiny')
 
     def test_extra_duplicate_and_traversal_members(self):
         for name in ('report.json', '../outside', 'sub/report.json', '/absolute'):

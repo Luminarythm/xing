@@ -93,3 +93,5 @@ Linux/macOS：`export GEO_API_TOKEN="$(python -c 'import secrets; print(secrets.
 `python -m geo.bundle --db data/geo.sqlite3 --site <site-id> --start 2026-10-30T00:00:00Z --end 2026-10-31T00:00:00Z --output data/report.zip` 导出同一数据库快照的基础报告、质量报告和参数/摘要清单，不包含原始回答，拒绝覆盖已有文件。使用实际数据库路径和站点ID，详见 [本地报告包](docs/REPORT_BUNDLES.md)。
 
 `python -m geo.bundle_check data/report.zip --summary` 离线校验报告包并输出中文文本摘要；去掉 `--summary` 输出机器可读校验结果。不会解压文件或连接数据库。`python scripts/bundle_load.py` 运行固定 1,000 条合成样本的导出/校验基线。
+
+离线校验包含品牌分组、页面覆盖和主报告交叉约束，并拒绝溢出数值。`python scripts/bundle_load.py --expanded` 验证加入5,000页清单和1,000条复核后的导出/校验规模；结果与限制见报告包文档。

@@ -39,6 +39,92 @@ def invalid_constant(value):
     raise ValueError('non-finite JSON number')
 
 
+def finite_float(value):
+    number = float(value)
+    require(math.isfinite(number))
+    return number
+
+
+def bounded_read(stream, limit):
+    data = bytearray()
+    while True:
+        chunk = stream.read(min(65536, limit - len(data) + 1))
+        if not chunk:
+            return bytes(data)
+        data.extend(chunk)
+        require(len(data) <= limit)
+
+
+def validate_groups(basic):
+    total = basic['answer_samples']
+    definitions = basic['brand_definitions']
+    require(isinstance(definitions, list) and 1 <= len(definitions) <= 50)
+    names, ids = set(), set()
+    for brand in definitions:
+        require(isinstance(brand['name'], str) and bool(brand['name'])
+                and isinstance(brand['id'], str) and bool(brand['id']))
+        require(brand['name'] not in names and brand['id'] not in ids)
+        names.add(brand['name'])
+        ids.add(brand['id'])
+    mentions = basic['brand_mentions']
+    require(set(mentions) == names)
+    counts = [integer(v) for v in mentions.values()]
+    require(max(counts) <= basic['mentioned_samples'] <= min(total, sum(counts)))
+    excluded = basic['filters'].get('kind') == 'answers' or any(
+        key in basic['filters'] for key in ('platform', 'surface', 'model'))
+    require(basic['log_scope'] == ('excluded_by_answer_filter' if excluded else 'included'))
+    log_fields = ('log_requests', 'declared_ai_requests', 'verified_ai_requests',
+                  'failed_ai_requests', 'observed_ai_pages', 'search_engine_requests')
+    coverage = basic['coverage']
+    require(basic['coverage_rate'] == coverage['observed_coverage_rate']
+            and basic['successful_coverage_rate'] == coverage['successful_coverage_rate'])
+    if excluded:
+        require(all(basic[key] is None for key in log_fields))
+    else:
+        for key in log_fields:
+            integer(basic[key])
+        require(basic['failed_ai_requests'] <= basic['declared_ai_requests'] <= basic['log_requests']
+                and basic['verified_ai_requests'] <= basic['declared_ai_requests']
+                and basic['observed_ai_pages'] <= basic['declared_ai_requests']
+                and basic['search_engine_requests'] <= basic['log_requests'])
+    if coverage['inventory_id'] is None:
+        require(coverage['inventory_size'] is None)
+    else:
+        require(isinstance(coverage['inventory_id'], str) and bool(coverage['inventory_id']))
+        integer(coverage['inventory_size'])
+    if excluded or coverage['inventory_id'] is None:
+        require(coverage['pages'] == [] and coverage['outside_inventory_urls'] is None
+                and coverage['observed_coverage_rate'] is None and coverage['successful_coverage_rate'] is None)
+        for key in ('observed_pages', 'successful_pages', 'unobserved_pages'):
+            require(coverage.get(key) is None)
+        return
+    pages = coverage['pages']
+    require(isinstance(pages, list) and len(pages) == coverage['inventory_size'])
+    urls, observed, successful, requests, failures = set(), 0, 0, 0, 0
+    for page in pages:
+        require(isinstance(page['url'], str) and page['url'] not in urls)
+        urls.add(page['url'])
+        n, good, bad, redirect = (integer(page[key]) for key in
+            ('requests', 'successful_requests', 'failed_requests', 'redirect_requests'))
+        require(good + bad + redirect <= n and page['observed'] is bool(n)
+                and page['successful'] is bool(good))
+        observed += bool(n)
+        successful += bool(good)
+        requests += n
+        failures += bad
+    outside = coverage['outside_inventory_urls']
+    require(isinstance(outside, list) and all(isinstance(u, str) for u in outside)
+            and len(set(outside)) == len(outside) and not urls.intersection(outside))
+    require(integer(coverage['observed_pages']) == observed
+            and integer(coverage['successful_pages']) == successful
+            and integer(coverage['unobserved_pages']) == len(pages) - observed)
+    ratio(coverage['observed_coverage_rate'], observed, len(pages))
+    ratio(coverage['successful_coverage_rate'], successful, len(pages))
+    require(observed + len(outside) == basic['observed_ai_pages']
+            and requests + len(outside) <= basic['declared_ai_requests']
+            and failures <= basic['failed_ai_requests'])
+
+
 def ratio(actual, numerator, denominator):
     if denominator == 0:
         require(actual is None)
@@ -86,14 +172,14 @@ def validate_reports(manifest, basic, quality):
     for name in ('evidence_counts_by_surface', 'evidence_counts_by_platform'):
         require(sum(integer(v) for v in basic[name].values()) == total)
     require(isinstance(basic['site']['name'], str))
+    validate_groups(basic)
 
 
 def verify(path, max_bytes=16 * 1024 * 1024):
     require(type(max_bytes) is int and max_bytes >= 1024)
     # Bound the archive before ZipFile parses its central directory; never trust its manifest limits.
     with Path(path).open('rb') as stream:
-        packed = stream.read(max_bytes + 65537)
-    require(len(packed) <= max_bytes + 65536)
+        packed = bounded_read(stream, max_bytes + 65536)
     try:
         with zipfile.ZipFile(io.BytesIO(packed)) as archive:
             entries = archive.infolist()
@@ -106,12 +192,12 @@ def verify(path, max_bytes=16 * 1024 * 1024):
                         and stat.S_IFMT(entry.external_attr >> 16) in (0, stat.S_IFREG))
                 require(0 <= entry.file_size <= max_bytes - total)
                 with archive.open(entry) as member:
-                    data = member.read(max_bytes - total + 1)
+                    data = bounded_read(member, max_bytes - total)
                 require(len(data) == entry.file_size and total + len(data) <= max_bytes)
                 files[entry.filename] = data
                 total += len(data)
         decoded = {name: json.loads(files[name].decode('utf-8'), object_pairs_hook=unique_object,
-                                   parse_constant=invalid_constant)
+                                   parse_constant=invalid_constant, parse_float=finite_float)
                    for name in MEMBERS if name.endswith('.json')}
         files['README.txt'].decode('utf-8')
         manifest, basic, quality = (decoded[name] for name in ('manifest.json', 'report.json', 'quality.json'))
