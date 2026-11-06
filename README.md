@@ -95,3 +95,5 @@ Linux/macOS：`export GEO_API_TOKEN="$(python -c 'import secrets; print(secrets.
 `python -m geo.bundle_check data/report.zip --summary` 离线校验报告包并输出中文文本摘要；去掉 `--summary` 输出机器可读校验结果。不会解压文件或连接数据库。`python scripts/bundle_load.py` 运行固定 1,000 条合成样本的导出/校验基线。
 
 离线校验包含品牌分组、页面覆盖和主报告交叉约束，并拒绝溢出数值。`python scripts/bundle_load.py --expanded` 验证加入5,000页清单和1,000条复核后的导出/校验规模；结果与限制见报告包文档。
+
+`python -m geo.bundle_compare data/before.zip data/after.zip --summary` 对照同站点、同筛选且按时间先后不重叠的报告包。配置/清单改变会暂停相关差值，未知值不作零；完整JSON和口径见 [双时间窗对照](docs/REPORT_COMPARISON.md)。
